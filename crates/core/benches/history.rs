@@ -24,7 +24,7 @@ fn graph(c: &mut Criterion) {
     let parents = tangled(200_000, 12);
     c.bench_function("layout 200k commits", |b| b.iter(|| Graph::new(black_box(parents.clone()))));
     let graph = Graph::new(parents);
-    c.bench_function("rows for one screen", |b| b.iter(|| graph.rows(black_box(150_000..150_060))));
+    c.bench_function("rows for ten screens", |b| b.iter(|| graph.rows(black_box(150_000..150_600))));
 }
 
 fn repository(c: &mut Criterion) {
@@ -32,9 +32,9 @@ fn repository(c: &mut Criterion) {
     let repo = Repo::open(path).expect("GITCRAFT_BENCH_REPO is a repository");
     c.bench_function("history of the bench repository", |b| b.iter(|| repo.history().unwrap()));
     let history = repo.history().unwrap();
-    let screen = &history.ids[history.ids.len() / 2..][..60];
-    c.bench_function("commits for one screen", |b| {
-        b.iter(|| screen.iter().map(|&id| repo.commit(id).unwrap()).collect::<Vec<_>>());
+    let screens = &history.ids[history.ids.len() / 2..][..600];
+    c.bench_function("commits for ten screens", |b| {
+        b.iter(|| screens.iter().map(|&id| repo.commit(id).unwrap()).collect::<Vec<_>>());
     });
 }
 
