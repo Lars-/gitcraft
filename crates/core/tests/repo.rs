@@ -95,7 +95,7 @@ fn opens_from_a_subfolder_and_handles_an_empty_repository() {
     let (_dir, git) = repo();
     fs::create_dir(git.dir().join("sub")).unwrap();
     let repo = Repo::open(git.dir().join("sub")).unwrap();
-    assert_eq!(repo.git.dir(), git.dir());
+    assert_eq!(fs::canonicalize(repo.git.dir()).unwrap(), git.dir());
     assert_eq!(repo.name(), git.dir().file_name().unwrap().to_string_lossy());
     let history = repo.history().unwrap();
     assert!(history.ids.is_empty() && history.head.is_none());
