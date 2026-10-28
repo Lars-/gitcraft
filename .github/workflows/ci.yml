@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked
+      - run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets --locked
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  # A pull request may not make GitCraft slower: every benchmark is measured on the base branch
+  # and on the pull request, on the same machine, and more than 15% slower fails the check.
+  speed:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      GITCRAFT_BENCH_REPO: ${{ github.workspace }}/../git.git
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Clone git.git to measure against
+        run: |
+          git clone --bare --filter=blob:none --quiet https://github.com/git/git.git "$GITCRAFT_BENCH_REPO"
+          git -C "$GITCRAFT_BENCH_REPO" commit-graph write --reachable
+      - name: Measure the base branch
+        run: |
+          git checkout --quiet ${{ github.event.pull_request.base.sha }}
+          cargo bench -p gitcraft-core --bench history -- --save-baseline base || echo "::notice::The base branch has no benchmarks to compare with"
+      - name: Measure this pull request
+        run: |
+          git checkout --quiet ${{ github.event.pull_request.head.sha }}
+          cargo bench -p gitcraft-core --bench history -- --baseline-lenient base
+      - run: python3 .github/speed-gate.py target/criterion 0.15

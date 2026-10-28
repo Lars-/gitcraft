@@ -1,0 +1,20 @@
+[package]
+name = "gitcraft"
+description = "A fast, cross-platform graphical git client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gitcraft-core.workspace = true
+eframe.workspace = true
+rfd.workspace = true
+
+[dev-dependencies]
+egui_kittest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

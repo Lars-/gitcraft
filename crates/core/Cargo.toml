@@ -1,0 +1,24 @@
+[package]
+name = "gitcraft-core"
+description = "Repository model behind GitCraft: history graph, refs, status, diffs and git operations"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gix.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "history"
+harness = false
+
+[lints]
+workspace = true
