@@ -39,4 +39,15 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           files: gitcraft-*.*
-          generate_release_notes: true
+
+  # Once, after every build: with the notes generated in each matrix job they were appended six times.
+  notes:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - run: |
+          notes=$(gh api "repos/$GH_REPO/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body)
+          gh release edit "$GITHUB_REF_NAME" --notes "$notes"
