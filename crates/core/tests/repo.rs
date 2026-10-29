@@ -3,7 +3,7 @@
 use std::fs;
 
 use gitcraft_core::diff::{self, FileDiff, LineKind, Source};
-use gitcraft_core::git::{Git, Op, ResetMode};
+use gitcraft_core::git::{self, Git, Op, ResetMode};
 use gitcraft_core::repo::{Label, RefKind, Repo};
 use gitcraft_core::status::{self, Change, Status};
 use gitcraft_core::{Error, ObjectId};
@@ -282,4 +282,40 @@ fn push_fetch_and_pull_through_a_remote() {
     let status = Status::read(&git).unwrap();
     assert_eq!((status.ahead, status.behind), (0, 0));
     assert!(git.dir().join("b.txt").exists());
+}
+
+#[test]
+fn init_and_clone_with_progress() {
+    let dir = tempfile::tempdir().unwrap();
+    let new = git::init(&dir.path().join("new/project")).unwrap();
+    assert_eq!(Repo::open(new.dir()).unwrap().history().unwrap().ids.len(), 0);
+
+    let (source_dir, source) = repo();
+    let root = commit(&source, "a.txt", "a\n", "Root");
+    // A file:// URL makes git send the objects, with progress, instead of copying the folder.
+    let path = source_dir.path().to_str().unwrap().replace('\\', "/");
+    let url = format!("file://{}{path}", if path.starts_with('/') { "" } else { "/" });
+    let mut lines = Vec::new();
+    let clone = git::clone(&url, &dir.path().join("clone"), |line| lines.push(line.to_owned())).unwrap();
+    assert_eq!(head(&clone), root);
+    assert!(lines.iter().any(|line| line.contains("100%")), "{lines:?}");
+
+    match git::clone(&url, &dir.path().join("clone"), |_| {}) {
+        Err(Error::Git { message, .. }) => assert!(message.contains("clone"), "{message}"),
+        other => panic!("expected a git error, got {other:?}"),
+    }
+}
+
+#[test]
+fn clone_picks_the_folder_name_git_would() {
+    for (url, name) in [
+        ("https://github.com/Lars-/gitcraft.git", "gitcraft"),
+        ("git@github.com:Lars-/gitcraft.git", "gitcraft"),
+        ("https://example.com/repo/", "repo"),
+        ("/path/to/repo/.git", "repo"),
+        (r"C:\code\repo", "repo"),
+        ("", ""),
+    ] {
+        assert_eq!(git::clone_name(url), name, "{url}");
+    }
 }

@@ -6,6 +6,7 @@ mod details;
 mod diff;
 mod graph;
 mod sidebar;
+mod start;
 #[cfg(test)]
 mod tests;
 mod theme;

@@ -11,6 +11,7 @@ use gitcraft_core::git::{Git, Op};
 use tempfile::TempDir;
 
 use crate::app::Selection;
+use crate::start::percent;
 use crate::ui::App;
 
 /// A repository with one commit, with the tester's own git config kept out of the way.
@@ -47,11 +48,26 @@ fn app(path: Option<&Path>) -> Harness<'static, App> {
 fn settle(harness: &mut Harness<'_, App>) {
     let start = Instant::now();
     harness.step();
-    while harness.state().workspace.as_ref().is_some_and(|ws| ws.busy().is_some()) {
+    while busy(harness.state()) {
         assert!(start.elapsed() < Duration::from_secs(30), "the app stays busy");
         std::thread::sleep(Duration::from_millis(5));
         harness.step();
     }
+    harness.run();
+}
+
+fn busy(app: &App) -> bool {
+    match &app.workspace {
+        Some(ws) => ws.busy().is_some(),
+        None => app.start.dialog.as_ref().is_some_and(crate::start::Dialog::busy),
+    }
+}
+
+/// Types into the text field labelled `label`.
+fn type_into(harness: &mut Harness<'_, App>, label: &str, text: &str) {
+    harness.get_by_label(label).click();
+    harness.run();
+    harness.get_by_label(label).type_text(text);
     harness.run();
 }
 
@@ -66,6 +82,65 @@ fn a_bad_path_explains_itself_on_the_start_screen() {
     let harness = app(Some(Path::new("/surely/not/a/repository")));
     assert!(harness.state().workspace.is_none());
     harness.get_by_label_contains("/surely/not/a/repository");
+}
+
+#[test]
+fn clone_a_repository_from_the_start_screen() {
+    let (source_dir, _source) = repo();
+    let into = tempfile::tempdir().unwrap();
+    let mut harness = app(None);
+    harness.get_by_label("Clone a repository…").click();
+    harness.run();
+    type_into(&mut harness, "URL", source_dir.path().to_str().unwrap());
+    type_into(&mut harness, "Folder", into.path().to_str().unwrap());
+    harness.get_by_label("Clone").click();
+    settle(&mut harness);
+
+    let ws = harness.state().workspace.as_ref().expect("the clone is open");
+    let name = source_dir.path().file_name().unwrap();
+    assert_eq!(fs::canonicalize(ws.repo.git.dir()).unwrap(), fs::canonicalize(into.path().join(name)).unwrap());
+    harness.get_by_role_and_label(Role::Button, "First commit");
+}
+
+#[test]
+fn a_failing_clone_shows_git_s_message_and_stays_open() {
+    let into = tempfile::tempdir().unwrap();
+    let mut harness = app(None);
+    harness.get_by_label("Clone a repository…").click();
+    harness.run();
+    type_into(&mut harness, "URL", into.path().join("missing").to_str().unwrap());
+    type_into(&mut harness, "Folder", into.path().to_str().unwrap());
+    harness.get_by_label("Clone").click();
+    settle(&mut harness);
+
+    assert!(harness.state().workspace.is_none());
+    let error = harness.state().start.dialog.as_ref().and_then(|d| d.error.clone()).expect("an error");
+    harness.get_by_label(&error);
+    harness.get_by_label("Cancel").click();
+    harness.run();
+    assert!(harness.state().start.dialog.is_none());
+}
+
+#[test]
+fn create_a_repository_from_the_start_screen() {
+    let into = tempfile::tempdir().unwrap();
+    let mut harness = app(None);
+    harness.get_by_label("Create a repository…").click();
+    harness.run();
+    type_into(&mut harness, "Name", "project");
+    type_into(&mut harness, "Folder", into.path().to_str().unwrap());
+    harness.get_by_label("Create").click();
+    settle(&mut harness);
+
+    assert_eq!(harness.state().workspace.as_ref().expect("the new repository is open").repo.name(), "project");
+    assert!(into.path().join("project/.git").is_dir());
+}
+
+#[test]
+fn git_s_progress_lines_fill_the_progress_bar() {
+    assert_eq!(percent("Receiving objects:  50% (500/1000), 1.20 MiB | 2.00 MiB/s"), Some(0.5));
+    assert_eq!(percent("remote: Counting objects: 100% (9/9), done."), Some(1.0));
+    assert_eq!(percent("Cloning into 'repo'..."), None);
 }
 
 #[test]
