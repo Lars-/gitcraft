@@ -109,7 +109,7 @@ fn a_failing_clone_shows_git_s_message_and_stays_open() {
     harness.get_by_label("Clone a repository…").click();
     harness.run();
     type_into(&mut harness, "URL", into.path().join("missing").to_str().unwrap());
-    type_into(&mut harness, "Folder", into.path().to_str().unwrap());
+    type_into(&mut harness, "Folder", into.path().join("clones").to_str().unwrap());
     harness.get_by_label("Clone").click();
     settle(&mut harness);
 
