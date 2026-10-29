@@ -2,11 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
-use eframe::egui::{self, Button, Key, RichText, Ui};
+use eframe::egui::{self, Button, Key, Ui};
 use gitcraft_core::git::Op;
 use gitcraft_core::repo::{RefKind, Repo};
 
 use crate::app::{Action, Selection, Workspace};
+use crate::start::Start;
 use crate::{details, diff, graph, sidebar, theme};
 
 const RECENT: usize = 10;
@@ -18,11 +19,10 @@ pub struct App {
     pub workspace: Option<Workspace>,
     /// Recently opened repositories, newest first.
     pub recent: Vec<PathBuf>,
-    path: String,
-    error: Option<String>,
+    /// The start screen, shown while no repository is open.
+    pub start: Start,
     focused: bool,
     pending: Option<PathBuf>,
-    logo: Option<egui::TextureHandle>,
 }
 
 impl App {
@@ -40,9 +40,9 @@ impl App {
                 self.recent.insert(0, path);
                 self.recent.truncate(RECENT);
                 self.workspace = Some(Workspace::new(ctx, repo));
-                self.error = None;
+                self.start.error = None;
             }
-            Err(error) => self.error = Some(format!("{}: {error}", path.display())),
+            Err(error) => self.start.error = Some(format!("{}: {error}", path.display())),
         }
     }
 
@@ -54,15 +54,7 @@ impl App {
         let mut actions = Vec::new();
         let focused = ui.input(|i| i.focused);
         match &mut self.workspace {
-            None => {
-                let logo = self.logo.get_or_insert_with(|| {
-                    let icon = crate::logo();
-                    let size = [icon.width, icon.height].map(|n| usize::try_from(n).expect("a small image"));
-                    let image = egui::ColorImage::from_rgba_unmultiplied(size, &icon.rgba);
-                    ui.ctx().load_texture("logo", image, egui::TextureOptions::LINEAR)
-                });
-                start(ui, logo.id(), &mut self.path, &self.recent, self.error.as_deref(), &mut actions);
-            }
+            None => self.start.show(ui, &self.recent, &mut actions),
             Some(ws) => {
                 ws.poll();
                 if focused && !self.focused {
@@ -82,50 +74,9 @@ impl App {
     }
 }
 
-fn pick_folder() -> Option<PathBuf> {
-    rfd::FileDialog::new().set_title("Open a repository").pick_folder()
-}
-
-fn start(
-    ui: &mut Ui,
-    logo: egui::TextureId,
-    path: &mut String,
-    recent: &[PathBuf],
-    error: Option<&str>,
-    actions: &mut Vec<Action>,
-) {
-    egui::CentralPanel::default().show(ui, |ui| {
-        ui.vertical_centered(|ui| {
-            ui.add_space(ui.available_height() / 6.0);
-            ui.image((logo, egui::Vec2::splat(112.0)));
-            ui.heading(RichText::new("GitCraft").size(32.0).strong());
-            ui.weak("A fast git client");
-            ui.add_space(24.0);
-            if ui.add(Button::new("Open a repository…").min_size(egui::vec2(220.0, 32.0))).clicked()
-                && let Some(folder) = pick_folder()
-            {
-                actions.push(Action::OpenRepo(folder));
-            }
-            ui.add_space(8.0);
-            let field = ui
-                .add(egui::TextEdit::singleline(path).hint_text("or type a path and press Enter").desired_width(320.0));
-            if field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !path.trim().is_empty() {
-                actions.push(Action::OpenRepo(PathBuf::from(path.trim())));
-            }
-            if let Some(error) = error {
-                ui.colored_label(theme::ERROR, error);
-            }
-            if !recent.is_empty() {
-                ui.add_space(24.0);
-                ui.weak("Recent");
-                for repo in recent {
-                    if ui.link(repo.display().to_string()).clicked() {
-                        actions.push(Action::OpenRepo(repo.clone()));
-                    }
-                }
-            }
-        });
-    });
+/// Asks for a folder.
+pub fn pick_folder(title: &str) -> Option<PathBuf> {
+    rfd::FileDialog::new().set_title(title).pick_folder()
 }
 
 fn workspace(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
@@ -153,7 +104,7 @@ fn toolbar(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
     let status = &ws.snapshot.status;
     ui.horizontal(|ui| {
         if ui.button("Open…").clicked()
-            && let Some(folder) = pick_folder()
+            && let Some(folder) = pick_folder("Open a repository")
         {
             actions.push(Action::OpenRepo(folder));
         }

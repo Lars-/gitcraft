@@ -1,7 +1,7 @@
 //! Running the user's `git`, and the changes GitCraft makes with it.
 
 use std::ffi::OsStr;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -40,11 +40,10 @@ impl Git {
         if output.status.code().is_some_and(|code| ok.contains(&code)) {
             return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
         }
-        let args: Vec<_> = args.iter().map(|a| a.as_ref().to_string_lossy()).collect();
-        Err(Error::Git { args: args.join(" "), message: String::from_utf8_lossy(&output.stderr).trim().to_owned() })
+        Err(failed(args, &output.stderr))
     }
 
-    fn output(&self, args: &[impl AsRef<OsStr>], input: Option<&[u8]>) -> Result<Output> {
+    fn command(&self, args: &[impl AsRef<OsStr>]) -> Command {
         let mut command = Command::new("git");
         command
             .arg("-C")
@@ -53,17 +52,23 @@ impl Git {
             .args(args)
             // A graphical client must never wait for a terminal or an editor.
             .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_EDITOR", "true")
-            .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .env("GIT_EDITOR", "true");
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             command.creation_flags(CREATE_NO_WINDOW);
         }
-        let mut child = command.spawn()?;
+        command
+    }
+
+    fn output(&self, args: &[impl AsRef<OsStr>], input: Option<&[u8]>) -> Result<Output> {
+        let mut child = self
+            .command(args)
+            .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
         let stdin = child.stdin.take();
         std::thread::scope(|scope| {
             if let (Some(mut stdin), Some(input)) = (stdin, input) {
@@ -74,6 +79,44 @@ impl Git {
         })
         .map_err(Error::from)
     }
+}
+
+/// Creates an empty repository in `dir`, making the folder if it is not there.
+pub fn init(dir: &Path) -> Result<Git> {
+    // Run from the current folder, so a relative `dir` means what it does on the command line.
+    Git::new(".").run(&[OsStr::new("init"), OsStr::new("-q"), OsStr::new("--"), dir.as_os_str()])?;
+    Ok(Git::new(dir))
+}
+
+/// Clones `url` into `dir`, which must be missing or empty, passing every line of git's progress
+/// to `progress` as it comes.
+pub fn clone(url: &str, dir: &Path, mut progress: impl FnMut(&str)) -> Result<Git> {
+    let args = [OsStr::new("clone"), OsStr::new("--progress"), OsStr::new("--"), OsStr::new(url), dir.as_os_str()];
+    let mut child =
+        Git::new(".").command(&args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn()?;
+    // git ends a progress line with `\r` to overwrite it, and with `\n` once it is done. What
+    // follows the last `\r` is the message when it fails.
+    let mut last = Vec::new();
+    for part in BufReader::new(child.stderr.take().expect("stderr is piped")).split(b'\r') {
+        last = part?;
+        String::from_utf8_lossy(&last).lines().map(str::trim).filter(|line| !line.is_empty()).for_each(&mut progress);
+    }
+    if child.wait()?.success() {
+        return Ok(Git::new(dir));
+    }
+    Err(failed(&args, &last))
+}
+
+/// The folder name `git clone` picks for `url`: its last part, without `.git`.
+pub fn clone_name(url: &str) -> &str {
+    let url = url.trim().trim_end_matches('/');
+    let url = url.strip_suffix(".git").unwrap_or(url).trim_end_matches('/');
+    url.rsplit(['/', '\\', ':']).next().unwrap_or_default()
+}
+
+fn failed(args: &[impl AsRef<OsStr>], stderr: &[u8]) -> Error {
+    let args: Vec<_> = args.iter().map(|a| a.as_ref().to_string_lossy()).collect();
+    Error::Git { args: args.join(" "), message: String::from_utf8_lossy(stderr).trim().to_owned() }
 }
 
 /// How far [`Op::Reset`] goes.

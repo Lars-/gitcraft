@@ -40,6 +40,8 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
 Being an early version, it does not yet ask for confirmation before a hard reset, so take care
 with that one.
 
+- **Start**: open a folder, clone from a URL with git's progress as it goes, or create a new
+  repository.
 - **Graph**: every branch, remote branch and tag in one graph, children above parents, with
   coloured lanes, branch and tag labels and the uncommitted changes on top. Arrow keys walk it.
 - **Commits**: message, author, parents and the files they changed, with the diff of each file.
