@@ -311,5 +311,6 @@ fn tabs_open_again_on_the_next_run() {
     let harness = run(App::restore(|key| saved.get(key).cloned(), None));
     assert_eq!(tabs(harness.state()), [name(&a), name(&b)]);
     assert_eq!(harness.state().active, Some(0));
-    assert_eq!(harness.state().recent, [a.dir(), b.dir()]);
+    let recent: Vec<_> = harness.state().recent.iter().map(|path| fs::canonicalize(path).unwrap()).collect();
+    assert_eq!(recent, [a.dir(), b.dir()]);
 }
