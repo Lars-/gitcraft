@@ -1,5 +1,6 @@
 //! The whole app, driven through its accessibility tree against real repositories.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -12,7 +13,7 @@ use tempfile::TempDir;
 
 use crate::app::Selection;
 use crate::start::percent;
-use crate::ui::App;
+use crate::ui::{App, KEYS};
 
 /// A repository with one commit, with the tester's own git config kept out of the way.
 fn repo() -> (TempDir, Git) {
@@ -37,7 +38,10 @@ fn log(git: &Git) -> String {
 }
 
 fn app(path: Option<&Path>) -> Harness<'static, App> {
-    let app = App::new(Vec::new(), path.map(Path::to_path_buf));
+    run(App::restore(|_| None, path.map(Path::to_path_buf)))
+}
+
+fn run(app: App) -> Harness<'static, App> {
     let mut harness =
         Harness::builder().with_size([1280.0, 720.0]).build_ui_state(|ui, app: &mut App| app.show(ui), app);
     settle(&mut harness);
@@ -57,10 +61,28 @@ fn settle(harness: &mut Harness<'_, App>) {
 }
 
 fn busy(app: &App) -> bool {
-    match &app.workspace {
-        Some(ws) => ws.busy().is_some(),
-        None => app.start.dialog.as_ref().is_some_and(crate::start::Dialog::busy),
-    }
+    app.tabs.iter().any(|ws| ws.busy().is_some()) || app.start.dialog.as_ref().is_some_and(crate::start::Dialog::busy)
+}
+
+/// The names on the tabs.
+fn tabs(app: &App) -> Vec<String> {
+    app.tabs.iter().map(|ws| ws.repo.name()).collect()
+}
+
+fn name(git: &Git) -> String {
+    git.dir().file_name().unwrap().to_string_lossy().into_owned()
+}
+
+/// Opens `git` from the start screen of a new tab.
+fn open_in_new_tab(harness: &mut Harness<'_, App>, git: &Git) {
+    harness.get_by_label("New tab").click();
+    harness.run();
+    harness.get_by_role(Role::TextInput).click();
+    harness.run();
+    harness.get_by_role(Role::TextInput).type_text(git.dir().to_str().unwrap());
+    harness.run();
+    harness.key_press(Key::Enter);
+    settle(harness);
 }
 
 /// Types into the text field labelled `label`.
@@ -80,7 +102,7 @@ fn the_start_screen_offers_to_open_a_repository() {
 #[test]
 fn a_bad_path_explains_itself_on_the_start_screen() {
     let harness = app(Some(Path::new("/surely/not/a/repository")));
-    assert!(harness.state().workspace.is_none());
+    assert!(harness.state().workspace().is_none());
     harness.get_by_label_contains("/surely/not/a/repository");
 }
 
@@ -96,7 +118,7 @@ fn clone_a_repository_from_the_start_screen() {
     harness.get_by_label("Clone").click();
     settle(&mut harness);
 
-    let ws = harness.state().workspace.as_ref().expect("the clone is open");
+    let ws = harness.state().workspace().expect("the clone is open");
     let name = source_dir.path().file_name().unwrap();
     assert_eq!(fs::canonicalize(ws.repo.git.dir()).unwrap(), fs::canonicalize(into.path().join(name)).unwrap());
     harness.get_by_role_and_label(Role::Button, "First commit");
@@ -113,7 +135,7 @@ fn a_failing_clone_shows_git_s_message_and_stays_open() {
     harness.get_by_label("Clone").click();
     settle(&mut harness);
 
-    assert!(harness.state().workspace.is_none());
+    assert!(harness.state().workspace().is_none());
     let error = harness.state().start.dialog.as_ref().and_then(|d| d.error.clone()).expect("an error");
     harness.get_by_label(&error);
     harness.get_by_label("Cancel").click();
@@ -132,7 +154,7 @@ fn create_a_repository_from_the_start_screen() {
     harness.get_by_label("Create").click();
     settle(&mut harness);
 
-    assert_eq!(harness.state().workspace.as_ref().expect("the new repository is open").repo.name(), "project");
+    assert_eq!(harness.state().workspace().expect("the new repository is open").repo.name(), "project");
     assert!(into.path().join("project/.git").is_dir());
 }
 
@@ -154,7 +176,7 @@ fn stage_and_commit_a_change() {
     harness.run();
     harness.get_by_label("Stage").click();
     settle(&mut harness);
-    harness.state_mut().workspace.as_mut().unwrap().summary = "Second commit".into();
+    harness.state_mut().workspace_mut().unwrap().summary = "Second commit".into();
     harness.run();
     harness.get_by_label("Commit changes to 1 file").click();
     settle(&mut harness);
@@ -169,15 +191,15 @@ fn arrow_keys_walk_the_history() {
     let (_dir, git) = repo();
     commit(&git, "Second commit");
     let mut harness = app(Some(git.dir()));
-    let ids = harness.state().workspace.as_ref().unwrap().snapshot.history.ids.clone();
-    assert_eq!(harness.state().workspace.as_ref().unwrap().selection, Some(Selection::Commit(ids[0])));
+    let ids = harness.state().workspace().unwrap().snapshot.history.ids.clone();
+    assert_eq!(harness.state().workspace().unwrap().selection, Some(Selection::Commit(ids[0])));
 
     harness.key_press(Key::ArrowDown);
     harness.run();
-    assert_eq!(harness.state().workspace.as_ref().unwrap().selection, Some(Selection::Commit(ids[1])));
+    assert_eq!(harness.state().workspace().unwrap().selection, Some(Selection::Commit(ids[1])));
     harness.key_press(Key::ArrowUp);
     harness.run();
-    assert_eq!(harness.state().workspace.as_ref().unwrap().selection, Some(Selection::Commit(ids[0])));
+    assert_eq!(harness.state().workspace().unwrap().selection, Some(Selection::Commit(ids[0])));
 }
 
 #[test]
@@ -206,4 +228,89 @@ fn a_failing_operation_shows_git_s_message() {
     harness.run();
     assert!(harness.query_by_label("Dismiss").is_none());
     assert_eq!(log(&git), "First commit\n");
+}
+
+#[test]
+fn open_several_repositories_in_tabs() {
+    let (_a_dir, a) = repo();
+    let (_b_dir, b) = repo();
+    commit(&b, "Only in b");
+    let mut harness = app(Some(a.dir()));
+    open_in_new_tab(&mut harness, &b);
+
+    assert_eq!(tabs(harness.state()), [name(&a), name(&b)]);
+    harness.get_by_role_and_label(Role::Button, "Only in b");
+    harness.get_by_label(&name(&a)).click();
+    settle(&mut harness);
+    assert_eq!(harness.state().active, Some(0));
+    assert!(harness.query_by_label("Only in b").is_none());
+}
+
+#[test]
+fn opening_a_repository_that_is_open_shows_its_tab() {
+    let (_a_dir, a) = repo();
+    let (_b_dir, b) = repo();
+    let mut harness = app(Some(a.dir()));
+    open_in_new_tab(&mut harness, &b);
+    open_in_new_tab(&mut harness, &a);
+
+    assert_eq!(tabs(harness.state()), [name(&a), name(&b)]);
+    assert_eq!(harness.state().active, Some(0));
+}
+
+#[test]
+fn a_tab_shows_what_changed_while_it_was_out_of_sight() {
+    let (_a_dir, a) = repo();
+    let (_b_dir, b) = repo();
+    let mut harness = app(Some(a.dir()));
+    open_in_new_tab(&mut harness, &b);
+    commit(&a, "Made elsewhere");
+    harness.get_by_label(&name(&a)).click();
+    settle(&mut harness);
+
+    harness.get_by_role_and_label(Role::Button, "Made elsewhere");
+}
+
+#[test]
+fn closing_tabs_shows_the_next_and_then_the_start_screen() {
+    let repos = [repo(), repo(), repo()];
+    let [a, b, c] = repos.each_ref().map(|(_, git)| git);
+    let mut harness = app(Some(a.dir()));
+    open_in_new_tab(&mut harness, b);
+    open_in_new_tab(&mut harness, c);
+    harness.get_by_label(&name(b)).click();
+    settle(&mut harness);
+
+    harness.get_by_label(&format!("Close {}", name(b))).click();
+    settle(&mut harness);
+    assert_eq!(tabs(harness.state()), [name(a), name(c)]);
+    assert_eq!(harness.state().active, Some(1));
+    harness.get_by_label(&format!("Close {}", name(a))).click();
+    settle(&mut harness);
+    assert_eq!(harness.state().active, Some(0));
+    harness.get_by_label(&format!("Close {}", name(c))).click();
+    settle(&mut harness);
+    assert!(harness.state().tabs.is_empty());
+    harness.get_by_label("Open a repository…");
+}
+
+#[test]
+fn tabs_open_again_on_the_next_run() {
+    let (_a_dir, a) = repo();
+    let (_b_dir, b) = repo();
+    let (_c_dir, c) = repo();
+    let mut harness = app(Some(a.dir()));
+    open_in_new_tab(&mut harness, &b);
+    harness.get_by_label(&name(&a)).click();
+    settle(&mut harness);
+    let saved: HashMap<_, _> = KEYS.into_iter().zip(harness.state().saved()).collect();
+
+    let harness = run(App::restore(|key| saved.get(key).cloned(), Some(c.dir().to_owned())));
+    assert_eq!(tabs(harness.state()), [name(&a), name(&b), name(&c)]);
+    assert_eq!(harness.state().active, Some(2));
+    let harness = run(App::restore(|key| saved.get(key).cloned(), None));
+    assert_eq!(tabs(harness.state()), [name(&a), name(&b)]);
+    assert_eq!(harness.state().active, Some(0));
+    let recent: Vec<_> = harness.state().recent.iter().map(|path| fs::canonicalize(path).unwrap()).collect();
+    assert_eq!(recent, [a.dir(), b.dir()]);
 }

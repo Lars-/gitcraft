@@ -66,7 +66,7 @@ Its tests run against real repositories made with `git` in a temporary folder
 - `app.rs` holds the state. Views never change it directly: they push an `Action`, which
   `Workspace::apply` carries out after the frame. Anything that touches the repository runs on a
   background thread and is followed by a reload, so the window never waits.
-- `start.rs` (open, clone and create), `ui.rs` (toolbar), `graph.rs`, `sidebar.rs`, `details.rs`
+- `start.rs` (open, clone and create), `ui.rs` (tabs and toolbar), `graph.rs`, `sidebar.rs`, `details.rs`
   and `diff.rs` draw the views, and `theme.rs` has the colours.
 
 The app's tests (`crates/app/src/tests.rs`) drive the whole window the way a user does, through

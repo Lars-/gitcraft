@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use eframe::egui::{self, Button, Key, Ui};
+use eframe::egui::{self, Button, Key, Role, Ui, WidgetInfo};
 use gitcraft_core::git::Op;
 use gitcraft_core::repo::{RefKind, Repo};
 
@@ -12,24 +12,54 @@ use crate::{details, diff, graph, sidebar, theme};
 
 const RECENT: usize = 10;
 
+/// Where [`App::saved`] keeps the recent repositories, the open tabs and the tab on screen.
+pub const KEYS: [&str; 3] = ["recent", "tabs", "active tab"];
+
 /// The whole app.
 #[derive(Default)]
 pub struct App {
-    /// The open repository.
-    pub workspace: Option<Workspace>,
+    /// The open repositories, one per tab.
+    pub tabs: Vec<Workspace>,
+    /// The tab on screen, or `None` for the start screen.
+    pub active: Option<usize>,
     /// Recently opened repositories, newest first.
     pub recent: Vec<PathBuf>,
-    /// The start screen, shown while no repository is open.
+    /// The start screen, shown while no tab is.
     pub start: Start,
     focused: bool,
-    pending: Option<PathBuf>,
+    pending: Vec<PathBuf>,
 }
 
 impl App {
-    /// Starts the app, opening `path` or else the last repository on the first frame.
-    pub fn new(recent: Vec<PathBuf>, path: Option<PathBuf>) -> Self {
-        let pending = path.or_else(|| recent.first().cloned());
+    /// Starts the app with what [`Self::saved`] stored, opening those tabs and `path` on the first frame.
+    pub fn restore(stored: impl Fn(&str) -> Option<String>, path: Option<PathBuf>) -> Self {
+        let [recent, tabs, active] =
+            KEYS.map(|key| stored(key).map(|v| v.lines().map(PathBuf::from).collect::<Vec<_>>()));
+        let recent = recent.unwrap_or_default();
+        // Versions without tabs opened the last repository again.
+        let tabs = tabs.unwrap_or_else(|| recent.iter().take(1).cloned().collect());
+        let pending = tabs.into_iter().chain(active.into_iter().flatten()).chain(path).collect();
         Self { recent, pending, ..Self::default() }
+    }
+
+    /// What to remember until the next run, one value for each of [`KEYS`].
+    pub fn saved(&self) -> [String; 3] {
+        let tabs = self.tabs.iter().map(|ws| ws.repo.git.dir());
+        [
+            lines(self.recent.iter().map(PathBuf::as_path)),
+            lines(tabs),
+            lines(self.workspace().map(|ws| ws.repo.git.dir())),
+        ]
+    }
+
+    /// The repository on screen.
+    pub fn workspace(&self) -> Option<&Workspace> {
+        self.tabs.get(self.active?)
+    }
+
+    /// The repository on screen.
+    pub fn workspace_mut(&mut self) -> Option<&mut Workspace> {
+        self.tabs.get_mut(self.active?)
     }
 
     fn open(&mut self, ctx: &egui::Context, path: &Path) {
@@ -37,41 +67,100 @@ impl App {
             Ok(repo) => {
                 let path = repo.git.dir().to_owned();
                 self.recent.retain(|p| *p != path);
-                self.recent.insert(0, path);
+                self.recent.insert(0, path.clone());
                 self.recent.truncate(RECENT);
-                self.workspace = Some(Workspace::new(ctx, repo));
-                self.start.error = None;
+                let tab = self.tabs.iter().position(|ws| ws.repo.git.dir() == path).unwrap_or_else(|| {
+                    self.tabs.push(Workspace::new(ctx, repo));
+                    self.tabs.len() - 1
+                });
+                self.active = Some(tab);
+                self.start.clear();
             }
-            Err(error) => self.start.error = Some(format!("{}: {error}", path.display())),
+            Err(error) => {
+                self.start.error = Some(format!("{}: {error}", path.display()));
+                self.active = None;
+            }
         }
+    }
+
+    /// Closes a tab and shows the one that takes its place, or the start screen after the last.
+    fn close(&mut self, tab: usize) {
+        self.tabs.remove(tab);
+        let last = self.tabs.len().checked_sub(1);
+        // The tabs after the closed one move one to the left.
+        self.active = self.active.zip(last).map(|(active, last)| (active - usize::from(active > tab)).min(last));
     }
 
     /// Draws a frame.
     pub fn show(&mut self, ui: &mut Ui) {
-        if let Some(path) = self.pending.take() {
-            self.open(ui.ctx(), &path);
+        let ctx = ui.ctx().clone();
+        for path in std::mem::take(&mut self.pending) {
+            self.open(&ctx, &path);
         }
+        self.tabs.iter_mut().for_each(Workspace::poll);
         let mut actions = Vec::new();
+        if !self.tabs.is_empty() {
+            egui::Panel::top("tabs").show(ui, |ui| tabs(ui, &self.tabs, self.active, &mut actions));
+        }
         let focused = ui.input(|i| i.focused);
-        match &mut self.workspace {
+        match self.active {
             None => self.start.show(ui, &self.recent, &mut actions),
-            Some(ws) => {
-                ws.poll();
+            Some(tab) => {
                 if focused && !self.focused {
                     actions.push(Action::Refresh);
                 }
-                workspace(ui, ws, &mut actions);
+                workspace(ui, &mut self.tabs[tab], &mut actions);
             }
         }
         self.focused = focused;
         for action in actions {
-            match (action, &mut self.workspace) {
-                (Action::OpenRepo(path), _) => self.open(ui.ctx(), &path),
-                (action, Some(ws)) => ws.apply(ui.ctx(), action),
-                (_, None) => {}
+            match action {
+                Action::OpenRepo(path) => self.open(&ctx, &path),
+                Action::CloseTab(tab) => self.close(tab),
+                Action::ShowTab(tab) => {
+                    self.active = tab;
+                    // It may have changed while it was out of sight.
+                    if let Some(ws) = self.workspace_mut() {
+                        ws.apply(&ctx, Action::Refresh);
+                    }
+                }
+                action => {
+                    if let Some(ws) = self.workspace_mut() {
+                        ws.apply(&ctx, action);
+                    }
+                }
             }
         }
     }
+}
+
+/// Paths one per line, the way [`App::saved`] keeps them.
+fn lines<'a>(paths: impl IntoIterator<Item = &'a Path>) -> String {
+    paths.into_iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join("\n")
+}
+
+/// The tab bar: a tab per repository, each with a close button, and a new tab.
+fn tabs(ui: &mut Ui, tabs: &[Workspace], active: Option<usize>, actions: &mut Vec<Action>) {
+    ui.horizontal(|ui| {
+        for (tab, ws) in tabs.iter().enumerate() {
+            let name = ws.repo.name();
+            let path = ws.repo.git.dir().display().to_string();
+            if ui.add(Button::selectable(active == Some(tab), &name)).on_hover_text(path).clicked() {
+                actions.push(Action::ShowTab(Some(tab)));
+            }
+            let close = ui.add(Button::new("×").small().frame(false)).on_hover_text("Close");
+            close.widget_info(|| WidgetInfo::labeled(Role::Button, true, format!("Close {name}")));
+            if close.clicked() {
+                actions.push(Action::CloseTab(tab));
+            }
+            ui.separator();
+        }
+        let new = ui.add(Button::selectable(active.is_none(), "+")).on_hover_text("New tab");
+        new.widget_info(|| WidgetInfo::labeled(Role::Button, true, "New tab"));
+        if new.clicked() {
+            actions.push(Action::ShowTab(None));
+        }
+    });
 }
 
 /// Asks for a folder.
@@ -103,13 +192,7 @@ fn workspace(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
 fn toolbar(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
     let status = &ws.snapshot.status;
     ui.horizontal(|ui| {
-        if ui.button("Open…").clicked()
-            && let Some(folder) = pick_folder("Open a repository")
-        {
-            actions.push(Action::OpenRepo(folder));
-        }
-        ui.strong(ws.repo.name());
-        ui.weak(status.branch.as_deref().unwrap_or("detached HEAD"));
+        ui.strong(status.branch.as_deref().unwrap_or("detached HEAD"));
         ui.separator();
         let idle = ws.busy().is_none();
         let count = |label: &str, n: u32| if n > 0 { format!("{label}  {n}") } else { label.to_owned() };

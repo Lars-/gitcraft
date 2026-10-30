@@ -25,6 +25,12 @@ pub struct Start {
 }
 
 impl Start {
+    /// Starts afresh once a repository is open, for the next new tab.
+    pub fn clear(&mut self) {
+        self.error = None;
+        self.path.clear();
+    }
+
     /// Draws the start screen.
     pub fn show(&mut self, ui: &mut Ui, recent: &[PathBuf], actions: &mut Vec<Action>) {
         let logo = self
