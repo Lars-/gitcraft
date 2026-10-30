@@ -16,8 +16,6 @@ use std::path::PathBuf;
 
 use eframe::egui;
 
-const RECENT: &str = "recent";
-
 /// The logo, which is also the window icon.
 const LOGO: &[u8] = include_bytes!("../../../assets/icon/256.png");
 
@@ -34,8 +32,9 @@ impl eframe::App for Window {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        let recent: Vec<_> = self.0.recent.iter().map(|path| path.display().to_string()).collect();
-        storage.set_string(RECENT, recent.join("\n"));
+        for (key, value) in ui::KEYS.into_iter().zip(self.0.saved()) {
+            storage.set_string(key, value);
+        }
     }
 }
 
@@ -52,10 +51,9 @@ fn main() -> eframe::Result {
         "GitCraft",
         options,
         Box::new(|cc| {
-            let recent = cc.storage.and_then(|s| s.get_string(RECENT)).unwrap_or_default();
-            let recent = recent.lines().map(PathBuf::from).collect();
             theme::apply(&cc.egui_ctx);
-            Ok(Box::new(Window(ui::App::new(recent, path))))
+            let app = ui::App::restore(|key| cc.storage.and_then(|s| s.get_string(key)), path);
+            Ok(Box::new(Window(app)))
         }),
     )
 }

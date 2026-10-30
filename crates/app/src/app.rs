@@ -34,8 +34,12 @@ pub enum Action {
     ToggleLine(usize, usize),
     /// Ask for a name first.
     Prompt(Prompt),
-    /// Switch to another repository.
+    /// Open a repository in a tab of its own, or show its tab if it is open.
     OpenRepo(PathBuf),
+    /// Show a tab, or the start screen for `None`.
+    ShowTab(Option<usize>),
+    /// Close a tab.
+    CloseTab(usize),
 }
 
 /// What the details panel shows.
@@ -230,7 +234,7 @@ impl Workspace {
                 }
             }
             Action::Prompt(prompt) => self.prompt = Some((prompt, String::new())),
-            Action::OpenRepo(_) => unreachable!("the app opens repositories"),
+            Action::OpenRepo(_) | Action::ShowTab(_) | Action::CloseTab(_) => unreachable!("the app handles tabs"),
         }
     }
 

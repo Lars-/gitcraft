@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/status-early-d69e2e" alt="Status: early" />
 </p>
 
-![GitCraft showing a repository: branches on the left, the commit graph with branch and tag labels in the middle, and the uncommitted changes with the commit form on the right](docs/screenshot.png)
+![GitCraft with two repositories open in tabs: branches on the left, the commit graph with branch and tag labels in the middle, and the uncommitted changes with the commit form on the right](docs/screenshot.png)
 
 ## Fast
 
@@ -42,6 +42,7 @@ with that one.
 
 - **Start**: open a folder, clone from a URL with git's progress as it goes, or create a new
   repository.
+- **Tabs**: keep several repositories open at once; they open again where you left them.
 - **Graph**: every branch, remote branch and tag in one graph, children above parents, with
   coloured lanes, branch and tag labels and the uncommitted changes on top. Arrow keys walk it.
 - **Commits**: message, author, parents and the files they changed, with the diff of each file.
