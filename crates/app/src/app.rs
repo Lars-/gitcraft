@@ -6,13 +6,17 @@
 use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::time::{Duration, Instant};
 
 use eframe::egui;
 use gitcraft_core::diff::{self, FileDiff, Source};
 use gitcraft_core::git::Op;
 use gitcraft_core::repo::{Commit, History, Repo};
 use gitcraft_core::status::{self, FileChange, Status};
+use gitcraft_core::watch::Watch;
 use gitcraft_core::{ObjectId, Result};
 
 /// What the user asked for.
@@ -121,13 +125,14 @@ impl Commits {
     }
 }
 
-type Outcome = (Option<String>, Result<Snapshot>);
+type Outcome = (Option<String>, Result<Snapshot>, Option<Result<Watch>>);
 
 /// An operation running in the background, followed by a reload.
 #[derive(Debug)]
 struct Job {
     op: Option<Op>,
     outcome: Receiver<Outcome>,
+    started: Instant,
 }
 
 /// An open repository.
@@ -160,6 +165,12 @@ pub struct Workspace {
     /// The graph rows on screen.
     pub visible: Range<usize>,
     job: Option<Job>,
+    /// Set when something changed since the last reload began.
+    changed: Arc<AtomicBool>,
+    /// Keeps `changed` up to date.
+    watch: Option<Watch>,
+    /// When the next reload may start by itself.
+    quiet_until: Instant,
 }
 
 impl Workspace {
@@ -180,8 +191,11 @@ impl Workspace {
             scroll_to: None,
             visible: 0..0,
             job: None,
+            changed: Arc::default(),
+            watch: None,
+            quiet_until: Instant::now(),
         };
-        workspace.start(ctx, None);
+        workspace.spawn(ctx, None, true);
         workspace
     }
 
@@ -250,30 +264,58 @@ impl Workspace {
         }
     }
 
-    fn start(&mut self, ctx: &egui::Context, op: Option<Op>) {
-        if self.job.is_some() {
+    /// Reloads when something changed, leaving at least as much time between two reloads as the
+    /// last one took, so that a build or a long checkout never keeps the window busy.
+    pub fn reload_if_changed(&mut self, ctx: &egui::Context) {
+        if self.job.is_some() || !self.changed.load(Ordering::Relaxed) {
             return;
         }
+        match self.quiet_until.checked_duration_since(Instant::now()) {
+            Some(wait) => ctx.request_repaint_after(wait),
+            None => self.start(ctx, None),
+        }
+    }
+
+    fn start(&mut self, ctx: &egui::Context, op: Option<Op>) {
+        if self.job.is_none() {
+            self.spawn(ctx, op, false);
+        }
+    }
+
+    /// Runs `op` and reloads, in the background. The first job also starts watching, which takes
+    /// a while in a large working tree.
+    fn spawn(&mut self, ctx: &egui::Context, op: Option<Op>, watch: bool) {
         let (send, outcome) = mpsc::channel();
-        let (repo, ctx, job_op) = (self.repo.clone(), ctx.clone(), op.clone());
+        let (repo, ctx, job_op, changed) = (self.repo.clone(), ctx.clone(), op.clone(), self.changed.clone());
         std::thread::spawn(move || {
+            let watch = watch.then(|| {
+                let (changed, ctx) = (changed.clone(), ctx.clone());
+                repo.watch(move || {
+                    changed.store(true, Ordering::Relaxed);
+                    ctx.request_repaint();
+                })
+            });
             let failed = job_op.and_then(|op| repo.git.apply(&op).err()).map(|error| error.to_string());
+            // The reload sees every change made until here.
+            changed.store(false, Ordering::Relaxed);
             // Sending fails only when the repository was closed in the meantime.
-            let _ = send.send((failed, Snapshot::load(&repo)));
+            let _ = send.send((failed, Snapshot::load(&repo), watch));
             ctx.request_repaint();
         });
-        self.job = Some(Job { op, outcome });
+        self.job = Some(Job { op, outcome, started: Instant::now() });
     }
 
     /// Takes in the result of the background job, once it is there.
     pub fn poll(&mut self) {
         let Some(job) = &self.job else { return };
-        let (failed, snapshot) = match job.outcome.try_recv() {
+        let (failed, snapshot, watch) = match job.outcome.try_recv() {
             Err(TryRecvError::Empty) => return,
-            Err(TryRecvError::Disconnected) => (Some("The background job stopped unexpectedly".to_owned()), None),
-            Ok((failed, snapshot)) => (failed, Some(snapshot)),
+            Err(TryRecvError::Disconnected) => (Some("The background job stopped unexpectedly".to_owned()), None, None),
+            Ok((failed, snapshot, watch)) => (failed, Some(snapshot), watch),
         };
-        let op = self.job.take().and_then(|job| job.op);
+        let job = self.job.take().expect("a job is running");
+        self.quiet_until = Instant::now() + job.started.elapsed().max(Duration::from_millis(100));
+        let op = job.op;
         if failed.is_none() && matches!(op, Some(Op::Commit { .. })) {
             self.summary.clear();
             self.description.clear();
@@ -282,6 +324,11 @@ impl Workspace {
         self.error = failed;
         match snapshot {
             Some(Ok(snapshot)) => self.snapshot = snapshot,
+            Some(Err(error)) => self.error = Some(error.to_string()),
+            None => {}
+        }
+        match watch {
+            Some(Ok(watch)) => self.watch = Some(watch),
             Some(Err(error)) => self.error = Some(error.to_string()),
             None => {}
         }

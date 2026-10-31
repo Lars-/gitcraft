@@ -98,6 +98,10 @@ impl App {
             self.open(&ctx, &path);
         }
         self.tabs.iter_mut().for_each(Workspace::poll);
+        // A tab out of sight reloads when it is shown.
+        if let Some(ws) = self.workspace_mut() {
+            ws.reload_if_changed(&ctx);
+        }
         let mut actions = Vec::new();
         if !self.tabs.is_empty() {
             egui::Panel::top("tabs").show(ui, |ui| tabs(ui, &self.tabs, self.active, &mut actions));
