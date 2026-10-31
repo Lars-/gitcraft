@@ -333,13 +333,14 @@ fn watch(git: &Git) -> (Watch, Receiver<()>) {
             let _ = send.send(());
         })
         .unwrap();
+    // macOS may still report changes made just before watching began.
+    noticed(&changes, QUIET);
     (watch, changes)
 }
 
 /// Whether a change is reported within `time`. Forgets the rest of the burst, so the next
 /// question starts afresh.
 fn noticed(changes: &Receiver<()>, time: Duration) -> bool {
-    phase("noticed? start");
     let noticed = changes.recv_timeout(time).is_ok();
     std::thread::sleep(Duration::from_millis(200));
     while changes.try_recv().is_ok() {}
@@ -373,23 +374,16 @@ fn ignored_files_and_reading_are_not_noticed() {
     write(&git, "new.txt", "untracked\n");
     let repo = Repo::open(git.dir()).unwrap();
     let (_watch, changes) = watch(&git);
-    phase("IGNORED watch started");
 
     write(&git, "target/build.log", "compiling\n");
     repo.history().unwrap();
     Status::read(&git).unwrap();
     status::stashes(&git).unwrap();
     diff::read(&git, &Source::Untracked("new.txt".into())).unwrap();
-    phase("IGNORED reads done");
     assert!(!noticed(&changes, QUIET));
 
     write(&git, ".gitignore", "");
     assert!(noticed(&changes, SOON), "the ignore rules changed");
     write(&git, "target/build.log", "done\n");
     assert!(noticed(&changes, SOON), "no longer ignored");
-}
-
-fn phase(name: &str) {
-    let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() % 100_000;
-    std::io::Write::write_all(&mut std::io::stderr(), format!("PHASE {ms} {name}\n").as_bytes()).unwrap();
 }

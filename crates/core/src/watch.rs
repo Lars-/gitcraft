@@ -54,12 +54,7 @@ impl Filter {
     fn matters(&mut self, event: notify::Result<Event>) -> bool {
         // When the events themselves went wrong, anything may have changed.
         let Ok(event) = event else { return true };
-        let debug = format!("{event:?}");
-        let result = event.need_rescan()
-            || !matches!(event.kind, EventKind::Access(_)) && event.paths.iter().any(|p| self.path(p));
-        let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() % 100_000;
-        std::io::Write::write_all(&mut std::io::stderr(), format!("WATCH {ms} {result} {debug}\n").as_bytes()).unwrap();
-        result
+        event.need_rescan() || !matches!(event.kind, EventKind::Access(_)) && event.paths.iter().any(|p| self.path(p))
     }
 
     fn path(&mut self, path: &Path) -> bool {
