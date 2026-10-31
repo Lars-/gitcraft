@@ -1,11 +1,14 @@
 //! End-to-end tests against real repositories made with the installed `git`.
 
 use std::fs;
+use std::sync::mpsc::{self, Receiver};
+use std::time::Duration;
 
 use gitcraft_core::diff::{self, FileDiff, LineKind, Source};
 use gitcraft_core::git::{self, Git, Op, ResetMode};
 use gitcraft_core::repo::{Label, RefKind, Repo};
 use gitcraft_core::status::{self, Change, Status};
+use gitcraft_core::watch::Watch;
 use gitcraft_core::{Error, ObjectId};
 use tempfile::TempDir;
 
@@ -318,4 +321,69 @@ fn clone_picks_the_folder_name_git_would() {
     ] {
         assert_eq!(git::clone_name(url), name, "{url}");
     }
+}
+
+/// Watches the repository, with a message for every change it reports.
+fn watch(git: &Git) -> (Watch, Receiver<()>) {
+    let (send, changes) = mpsc::channel();
+    let watch = Repo::open(git.dir())
+        .unwrap()
+        .watch(move || {
+            // Sending fails only once the test is over.
+            let _ = send.send(());
+        })
+        .unwrap();
+    // macOS may still report changes made just before watching began.
+    noticed(&changes, QUIET);
+    (watch, changes)
+}
+
+/// Whether a change is reported within `time`. Forgets the rest of the burst, so the next
+/// question starts afresh.
+fn noticed(changes: &Receiver<()>, time: Duration) -> bool {
+    let noticed = changes.recv_timeout(time).is_ok();
+    std::thread::sleep(Duration::from_millis(200));
+    while changes.try_recv().is_ok() {}
+    noticed
+}
+
+const SOON: Duration = Duration::from_secs(10);
+const QUIET: Duration = Duration::from_millis(500);
+
+#[test]
+fn changes_made_outside_are_noticed() {
+    let (_dir, git) = repo();
+    commit(&git, "a.txt", "a\n", "Root");
+    let (_watch, changes) = watch(&git);
+
+    write(&git, "a.txt", "edited\n");
+    assert!(noticed(&changes, SOON), "an edited file");
+    git.run(&["add", "a.txt"]).unwrap();
+    assert!(noticed(&changes, SOON), "staged in a terminal");
+    git.run(&["branch", "feature"]).unwrap();
+    assert!(noticed(&changes, SOON), "a new branch");
+    git.run(&["checkout", "-q", "feature"]).unwrap();
+    assert!(noticed(&changes, SOON), "another branch checked out");
+}
+
+#[test]
+fn ignored_files_and_reading_are_not_noticed() {
+    let (_dir, git) = repo();
+    commit(&git, ".gitignore", "target/\n", "Ignore builds");
+    fs::create_dir(git.dir().join("target")).unwrap();
+    write(&git, "new.txt", "untracked\n");
+    let repo = Repo::open(git.dir()).unwrap();
+    let (_watch, changes) = watch(&git);
+
+    write(&git, "target/build.log", "compiling\n");
+    repo.history().unwrap();
+    Status::read(&git).unwrap();
+    status::stashes(&git).unwrap();
+    diff::read(&git, &Source::Untracked("new.txt".into())).unwrap();
+    assert!(!noticed(&changes, QUIET));
+
+    write(&git, ".gitignore", "");
+    assert!(noticed(&changes, SOON), "the ignore rules changed");
+    write(&git, "target/build.log", "done\n");
+    assert!(noticed(&changes, SOON), "no longer ignored");
 }

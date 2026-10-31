@@ -57,6 +57,9 @@ There are two crates.
   working without code of our own.
 - `status.rs` and `diff.rs` parse `git status --porcelain=v2` and unified diffs, and build the
   patches for staging single lines.
+- `watch.rs` watches the working tree and the refs, and says when something changed that git
+  does not ignore. Reading should not write (`git status` runs without optional locks): a write
+  wakes the watcher again.
 
 Its tests run against real repositories made with `git` in a temporary folder
 (`crates/core/tests`), plus property tests for the graph layout.
@@ -65,7 +68,8 @@ Its tests run against real repositories made with `git` in a temporary folder
 
 - `app.rs` holds the state. Views never change it directly: they push an `Action`, which
   `Workspace::apply` carries out after the frame. Anything that touches the repository runs on a
-  background thread and is followed by a reload, so the window never waits.
+  background thread and is followed by a reload, so the window never waits. The tab on screen
+  also reloads by itself when its watcher saw a change.
 - `start.rs` (open, clone and create), `ui.rs` (tabs and toolbar), `graph.rs`, `sidebar.rs`, `details.rs`
   and `diff.rs` draw the views, and `theme.rs` has the colours.
 

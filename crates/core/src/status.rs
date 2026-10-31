@@ -69,7 +69,10 @@ pub struct Status {
 impl Status {
     /// Reads the status of the repository.
     pub fn read(git: &Git) -> Result<Self> {
-        Self::parse(&git.run(&["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"])?)
+        // Without optional locks, `git status` leaves the index alone: it neither wakes the watcher
+        // nor holds a lock that makes the user's own `git` fail.
+        let args = ["--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"];
+        Self::parse(&git.run(&args)?)
     }
 
     /// Whether nothing changed.

@@ -60,6 +60,16 @@ fn settle(harness: &mut Harness<'_, App>) {
     harness.run();
 }
 
+/// Steps the app until `shown`, as the watcher wakes it.
+fn wait_until(harness: &mut Harness<'_, App>, what: &str, shown: impl Fn(&Harness<'_, App>) -> bool) {
+    let start = Instant::now();
+    while !shown(harness) {
+        assert!(start.elapsed() < Duration::from_secs(10), "{what} never showed up");
+        std::thread::sleep(Duration::from_millis(5));
+        harness.step();
+    }
+}
+
 fn busy(app: &App) -> bool {
     app.tabs.iter().any(|ws| ws.busy().is_some()) || app.start.dialog.as_ref().is_some_and(crate::start::Dialog::busy)
 }
@@ -183,6 +193,21 @@ fn stage_and_commit_a_change() {
 
     assert_eq!(log(&git), "Second commit\nFirst commit\n");
     harness.get_by_role_and_label(Role::Button, "Second commit");
+    assert!(harness.query_by_label("Uncommitted changes").is_none());
+}
+
+#[test]
+fn changes_made_outside_show_up_by_themselves() {
+    let (_dir, git) = repo();
+    let mut harness = app(Some(git.dir()));
+
+    fs::write(git.dir().join("file.txt"), "edited elsewhere").unwrap();
+    wait_until(&mut harness, "the edit", |h| h.query_by_label("Uncommitted changes").is_some());
+    commit(&git, "Committed elsewhere");
+    wait_until(&mut harness, "the commit", |h| {
+        h.query_by_role_and_label(Role::Button, "Committed elsewhere").is_some()
+    });
+    settle(&mut harness);
     assert!(harness.query_by_label("Uncommitted changes").is_none());
 }
 

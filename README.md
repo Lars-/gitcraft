@@ -43,6 +43,8 @@ with that one.
 - **Start**: open a folder, clone from a URL with git's progress as it goes, or create a new
   repository.
 - **Tabs**: keep several repositories open at once; they open again where you left them.
+- **Live**: what you change in an editor, a build or a terminal shows up by itself; files git
+  ignores do not wake it.
 - **Graph**: every branch, remote branch and tag in one graph, children above parents, with
   coloured lanes, branch and tag labels and the uncommitted changes on top. Arrow keys walk it.
 - **Commits**: message, author, parents and the files they changed, with the diff of each file.
