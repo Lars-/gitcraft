@@ -54,7 +54,11 @@ impl Filter {
     fn matters(&mut self, event: notify::Result<Event>) -> bool {
         // When the events themselves went wrong, anything may have changed.
         let Ok(event) = event else { return true };
-        event.need_rescan() || !matches!(event.kind, EventKind::Access(_)) && event.paths.iter().any(|p| self.path(p))
+        let debug = format!("{event:?}");
+        let result = event.need_rescan()
+            || !matches!(event.kind, EventKind::Access(_)) && event.paths.iter().any(|p| self.path(p));
+        eprintln!("WATCH {result} {debug} dirs={:?} workdir={:?}", self.git_dirs, self.workdir);
+        result
     }
 
     fn path(&mut self, path: &Path) -> bool {
