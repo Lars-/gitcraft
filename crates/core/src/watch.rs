@@ -57,7 +57,8 @@ impl Filter {
         let debug = format!("{event:?}");
         let result = event.need_rescan()
             || !matches!(event.kind, EventKind::Access(_)) && event.paths.iter().any(|p| self.path(p));
-        eprintln!("WATCH {result} {debug} dirs={:?} workdir={:?}", self.git_dirs, self.workdir);
+        let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() % 100_000;
+        std::io::Write::write_all(&mut std::io::stderr(), format!("WATCH {ms} {result} {debug}\n").as_bytes()).unwrap();
         result
     }
 
