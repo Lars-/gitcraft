@@ -1,23 +1,41 @@
-//! The diff of one file, with staging of hunks and single lines.
+//! The diff of one file, with staging and discarding of hunks and single lines.
 
 use eframe::egui::{self, Align2, Color32, FontId, Key, Rect, RichText, Sense, Ui, Vec2};
 use gitcraft_core::diff::{LineKind, Source};
 use gitcraft_core::git::Op;
 
-use crate::app::{Action, OpenFile};
+use crate::app::{Action, Confirm, OpenFile};
 use crate::theme;
 
 const LINE: f32 = 18.0;
 const NUMBER: f32 = 44.0;
 
+/// What can be done with lines of the file.
+fn verbs(source: &Source) -> &'static [&'static str] {
+    match source {
+        Source::Unstaged(_) => &["Stage", "Discard"],
+        Source::Staged(_) => &["Unstage"],
+        Source::Untracked(_) | Source::Commit { .. } => &[],
+    }
+}
+
+/// Doing `verb` with the `selected` lines, which `what` names.
+fn act(file: &OpenFile, verb: &'static str, what: &str, selected: &dyn Fn(usize, usize) -> bool) -> Action {
+    // Unstaging and discarding both start from the lines as they are now, and take them out.
+    let reverse = verb != "Stage";
+    let patch = file.diff.patch(selected, reverse);
+    if verb == "Discard" {
+        let question = format!("Discard {what} of {}?", file.source.path());
+        return Action::Confirm(Confirm { question, verb, op: Op::DiscardLines(patch) });
+    }
+    Action::Run(Op::ApplyToIndex { patch, reverse })
+}
+
 /// Shows the open file.
 pub fn show(ui: &mut Ui, file: &OpenFile, actions: &mut Vec<Action>) {
-    let reverse = matches!(file.source, Source::Staged(_));
-    let stageable = matches!(file.source, Source::Unstaged(_) | Source::Staged(_));
-    let verb = if reverse { "Unstage" } else { "Stage" };
-    let run = |selected: &dyn Fn(usize, usize) -> bool| {
-        Action::Run(Op::ApplyToIndex { patch: file.diff.patch(selected, reverse), reverse })
-    };
+    let verbs = verbs(&file.source);
+    let picked = |h, l| file.lines.contains(&(h, l));
+    let lines = theme::count(file.lines.len(), "line");
     ui.horizontal(|ui| {
         ui.strong(file.source.path());
         ui.weak(match file.source {
@@ -30,9 +48,10 @@ pub fn show(ui: &mut Ui, file: &OpenFile, actions: &mut Vec<Action>) {
             if ui.button("Close").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
                 actions.push(Action::CloseFile);
             }
-            if stageable && !file.lines.is_empty() && ui.button(format!("{verb} {} lines", file.lines.len())).clicked()
-            {
-                actions.push(run(&|h, l| file.lines.contains(&(h, l))));
+            for verb in verbs {
+                if !file.lines.is_empty() && ui.button(format!("{verb} {lines}")).clicked() {
+                    actions.push(act(file, verb, &lines, &picked));
+                }
             }
         });
     });
@@ -68,22 +87,21 @@ pub fn show(ui: &mut Ui, file: &OpenFile, actions: &mut Vec<Action>) {
                     font.clone(),
                     Color32::GRAY,
                 );
-                if stageable {
-                    let button = Rect::from_min_size(rect.right_top() - Vec2::X * 110.0, Vec2::new(104.0, LINE));
+                for (verb, x) in verbs.iter().zip([110.0, 220.0]) {
+                    let button = Rect::from_min_size(rect.right_top() - Vec2::X * x, Vec2::new(104.0, LINE));
                     if ui.put(button, egui::Button::new(RichText::new(format!("{verb} hunk")).small())).clicked() {
-                        actions.push(run(&|hh, _| hh == h));
+                        actions.push(act(file, verb, "this hunk", &|hh, _| hh == h));
                     }
                 }
                 continue;
             };
             let line = &hunk.lines[l];
-            let picked = file.lines.contains(&(h, l));
             let (background, marker) = match line.kind {
                 LineKind::Added => (theme::ADDED, "+"),
                 LineKind::Removed => (theme::REMOVED, "-"),
                 LineKind::Context | LineKind::NoNewline => (Color32::TRANSPARENT, " "),
             };
-            painter.rect_filled(rect, 0.0, if picked { theme::PICKED } else { background });
+            painter.rect_filled(rect, 0.0, if picked(h, l) { theme::PICKED } else { background });
             let number = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
             let at = |x: f32| rect.left_center() + Vec2::X * x;
             painter.text(at(NUMBER - 6.0), Align2::RIGHT_CENTER, number(line.old), font.clone(), Color32::DARK_GRAY);
@@ -97,7 +115,7 @@ pub fn show(ui: &mut Ui, file: &OpenFile, actions: &mut Vec<Action>) {
             let text = format!("{marker} {}", line.text.trim_end_matches('\r'));
             painter.text(at(2.0 * NUMBER + 6.0), Align2::LEFT_CENTER, text, font.clone(), ui.visuals().text_color());
             let changed = matches!(line.kind, LineKind::Added | LineKind::Removed);
-            if stageable && changed && response.clicked() {
+            if !verbs.is_empty() && changed && response.clicked() {
                 actions.push(Action::ToggleLine(h, l));
             }
         }

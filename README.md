@@ -49,6 +49,7 @@ with that one.
   coloured lanes, branch and tag labels and the uncommitted changes on top. Arrow keys walk it.
 - **Commits**: message, author, parents and the files they changed, with the diff of each file.
 - **Staging**: stage or unstage files, whole hunks or single lines, then commit or amend.
+- **Discard**: throw away the changes to a file, a hunk or single lines, after you confirm.
 - **Branches and tags**: create, check out, merge, rebase, delete, from the sidebar or a right click.
 - **Commits from the graph**: check out, cherry-pick, revert, reset (soft, mixed, hard), copy the SHA.
 - **Remotes**: fetch, pull and push, with how far ahead and behind you are.

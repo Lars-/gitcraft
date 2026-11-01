@@ -173,6 +173,9 @@ pub fn pick_folder(title: &str) -> Option<PathBuf> {
 }
 
 fn workspace(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
+    // Dialogs come first, so that Escape closes them and nothing behind them.
+    prompt(ui.ctx(), ws, actions);
+    confirm(ui.ctx(), ws, actions);
     egui::Panel::top("toolbar").show(ui, |ui| toolbar(ui, ws, actions));
     if let Some(error) = ws.error.clone() {
         egui::Panel::bottom("error").show(ui, |ui| {
@@ -190,7 +193,6 @@ fn workspace(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
         Some(file) => diff::show(ui, file, actions),
         None => graph::show(ui, ws, actions),
     });
-    prompt(ui.ctx(), ws, actions);
 }
 
 fn toolbar(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
@@ -257,5 +259,25 @@ fn prompt(ctx: &egui::Context, ws: &mut Workspace, actions: &mut Vec<Action>) {
     });
     if done || response.should_close() {
         ws.prompt = None;
+    }
+}
+
+fn confirm(ctx: &egui::Context, ws: &mut Workspace, actions: &mut Vec<Action>) {
+    let Some(confirm) = &ws.confirm else { return };
+    let mut done = false;
+    let response = egui::Modal::new(egui::Id::unique("confirm")).show(ctx, |ui| {
+        ui.strong(&confirm.question);
+        ui.label("This cannot be undone.");
+        ui.horizontal(|ui| {
+            let verb = Button::new(egui::RichText::new(confirm.verb).color(theme::ERROR));
+            if ui.add_enabled(ws.busy().is_none(), verb).clicked() {
+                actions.push(Action::Run(confirm.op.clone()));
+                done = true;
+            }
+            done |= ui.button("Cancel").clicked();
+        });
+    });
+    if done || response.should_close() {
+        ws.confirm = None;
     }
 }

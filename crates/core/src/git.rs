@@ -166,6 +166,9 @@ pub enum Op {
         /// Take the patch out of the index instead.
         reverse: bool,
     },
+    /// Take a patch out of the working tree, putting those lines back the way the index has them.
+    /// The patch is built by [`crate::diff::FileDiff::patch`] with `reverse`.
+    DiscardLines(String),
     /// Commit the index.
     Commit {
         /// The full message.
@@ -249,6 +252,7 @@ impl Op {
             Self::ApplyToIndex { reverse, .. } => {
                 (&["apply", "--cached", "--recount"], [flag(*reverse, "--reverse"), vec!["-"]].concat())
             }
+            Self::DiscardLines(_) => (&["apply", "--recount", "--reverse", "-"], vec![]),
             Self::Commit { amend, .. } => (&["commit", "-q", "--cleanup=strip", "-F", "-"], flag(*amend, "--amend")),
             Self::Checkout(target) => (&["checkout", "-q"], vec![target]),
             Self::Branch { name, at } => (&["checkout", "-q", "-b"], vec![name, at]),
@@ -281,7 +285,7 @@ impl Op {
     pub fn input(&self) -> Option<&[u8]> {
         match self {
             Self::Commit { message, .. } => Some(message.as_bytes()),
-            Self::ApplyToIndex { patch, .. } => Some(patch.as_bytes()),
+            Self::ApplyToIndex { patch, .. } | Self::DiscardLines(patch) => Some(patch.as_bytes()),
             _ => None,
         }
     }

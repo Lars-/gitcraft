@@ -20,7 +20,12 @@ fn repo() -> (TempDir, Git) {
     let dir = tempfile::tempdir().unwrap();
     let git = Git::new(fs::canonicalize(dir.path()).unwrap());
     git.run(&["init", "-q", "-b", "main"]).unwrap();
-    for (key, value) in [("user.name", "Tess Ter"), ("user.email", "tess@example.com"), ("commit.gpgsign", "false")] {
+    for (key, value) in [
+        ("user.name", "Tess Ter"),
+        ("user.email", "tess@example.com"),
+        ("commit.gpgsign", "false"),
+        ("core.autocrlf", "false"),
+    ] {
         git.run(&["config", key, value]).unwrap();
     }
     commit(&git, "First commit");
@@ -48,16 +53,16 @@ fn run(app: App) -> Harness<'static, App> {
     harness
 }
 
-/// Steps the app until its background job is done and the frame is stable.
+/// Steps the app until its background job is done and the frame is stable, also when the
+/// watcher starts a reload in the meantime (macOS reports changes late).
 fn settle(harness: &mut Harness<'_, App>) {
     let start = Instant::now();
     harness.step();
-    while busy(harness.state()) {
+    while busy(harness.state()) || harness.try_run().is_err() {
         assert!(start.elapsed() < Duration::from_secs(30), "the app stays busy");
         std::thread::sleep(Duration::from_millis(5));
         harness.step();
     }
-    harness.run();
 }
 
 /// Steps the app until `shown`, as the watcher wakes it.
@@ -193,6 +198,93 @@ fn stage_and_commit_a_change() {
 
     assert_eq!(log(&git), "Second commit\nFirst commit\n");
     harness.get_by_role_and_label(Role::Button, "Second commit");
+    assert!(harness.query_by_label("Uncommitted changes").is_none());
+}
+
+fn read(git: &Git, path: &str) -> String {
+    fs::read_to_string(git.dir().join(path)).unwrap()
+}
+
+#[test]
+fn discard_a_changed_file_once_confirmed() {
+    let (_dir, git) = repo();
+    fs::write(git.dir().join("file.txt"), "changed").unwrap();
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+
+    harness.get_by_label("Discard file.txt").click();
+    settle(&mut harness);
+    harness.get_by_label("Discard the unstaged changes to file.txt?");
+    harness.get_by_label("Cancel").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "file.txt"), "changed");
+
+    harness.get_by_label("Discard file.txt").click();
+    settle(&mut harness);
+    harness.get_by_label("Discard").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "file.txt"), "First commit");
+    assert!(harness.query_by_label("Uncommitted changes").is_none());
+}
+
+#[test]
+fn discarding_an_open_untracked_file_deletes_it_and_closes_it() {
+    let (_dir, git) = repo();
+    fs::write(git.dir().join("new.txt"), "new").unwrap();
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    harness.get_by_label("new.txt").click();
+    settle(&mut harness);
+    assert!(harness.state().workspace().unwrap().open_file.is_some());
+
+    harness.get_by_label("Discard new.txt").click();
+    settle(&mut harness);
+    harness.get_by_label("Delete").click();
+    settle(&mut harness);
+    assert!(!git.dir().join("new.txt").exists());
+    let ws = harness.state().workspace().unwrap();
+    assert!(ws.open_file.is_none(), "the diff of the deleted file closes");
+    assert_eq!(ws.error, None);
+}
+
+#[test]
+fn discard_single_lines_and_hunks() {
+    let (_dir, git) = repo();
+    fs::write(git.dir().join("file.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    harness.get_by_label("file.txt").click();
+    settle(&mut harness);
+
+    // Pick the line "four", as a click on it does.
+    let file = harness.state_mut().workspace_mut().unwrap().open_file.as_mut().unwrap();
+    let four = file.diff.hunks[0].lines.iter().position(|l| l.text == "four").unwrap();
+    file.lines.insert((0, four));
+    // A reload that changes nothing keeps the pick.
+    harness.get_by_label("Refresh").click();
+    settle(&mut harness);
+    harness.get_by_label("Discard 1 line").click();
+    settle(&mut harness);
+    harness.get_by_label("Discard").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "file.txt"), "one\ntwo\nthree\n");
+
+    // Escape closes the question and nothing else.
+    harness.get_by_label("Discard hunk").click();
+    settle(&mut harness);
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    assert!(harness.query_by_label("Discard").is_none());
+    assert!(harness.state().workspace().unwrap().open_file.is_some());
+
+    harness.get_by_label("Discard hunk").click();
+    settle(&mut harness);
+    harness.get_by_label("Discard").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "file.txt"), "First commit");
     assert!(harness.query_by_label("Uncommitted changes").is_none());
 }
 

@@ -1,12 +1,12 @@
 //! The panel on the right: the uncommitted changes with the commit form, or a commit.
 
-use eframe::egui::{self, Button, Layout, RichText, TextEdit, Ui};
+use eframe::egui::{self, Button, Layout, RichText, Role, TextEdit, Ui, WidgetInfo};
 use gitcraft_core::ObjectId;
 use gitcraft_core::diff::Source;
 use gitcraft_core::git::Op;
 use gitcraft_core::status::Change;
 
-use crate::app::{Action, Selection, Workspace};
+use crate::app::{Action, Confirm, Selection, Workspace};
 use crate::theme;
 
 /// Shows the panel.
@@ -20,22 +20,32 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     }
 }
 
-/// One changed file: its kind of change, its path, and a button.
-fn file(ui: &mut Ui, change: Change, path: &str, open: bool, button: Option<&str>) -> (bool, bool) {
+/// One changed file: its kind of change, its path, and `buttons` on the right, right to left.
+/// Returns whether the path was clicked.
+fn file(ui: &mut Ui, change: Change, path: &str, open: bool, buttons: impl FnOnce(&mut Ui)) -> bool {
     let (letter, colour) = theme::change(change);
     ui.horizontal(|ui| {
         ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-            let pressed = button.is_some_and(|text| ui.small_button(text).clicked());
+            buttons(ui);
             ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.label(RichText::new(letter).monospace().strong().color(colour));
-                let clicked = ui.add(Button::selectable(open, path).truncate()).clicked();
-                (clicked, pressed)
+                ui.add(Button::selectable(open, path).truncate()).clicked()
             })
             .inner
         })
         .inner
     })
     .inner
+}
+
+/// Throwing away the unstaged changes to a file, or the whole file when git does not track it.
+fn discard(change: Change, path: &str) -> Confirm {
+    if change == Change::Untracked {
+        let question = format!("Delete {path}? Git does not track it.");
+        return Confirm { question, verb: "Delete", op: Op::DeleteUntracked(vec![path.into()]) };
+    }
+    let question = format!("Discard the unstaged changes to {path}?");
+    Confirm { question, verb: "Discard", op: Op::Discard(vec![path.into()]) }
 }
 
 fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
@@ -59,10 +69,20 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
             } else {
                 Source::Unstaged(path.into())
             };
-            let (clicked, stage) = file(ui, change, path, open == Some(&source), Some("Stage"));
-            if stage {
-                actions.push(Action::Run(Op::Stage(vec![path.into()])));
-            } else if clicked {
+            let clicked = file(ui, change, path, open == Some(&source), |ui| {
+                if ui.small_button("Stage").clicked() {
+                    actions.push(Action::Run(Op::Stage(vec![path.into()])));
+                }
+                // Conflicts are resolved, not discarded.
+                if change != Change::Conflicted {
+                    let button = ui.small_button("Discard");
+                    button.widget_info(|| WidgetInfo::labeled(Role::Button, true, format!("Discard {path}")));
+                    if button.clicked() {
+                        actions.push(Action::Confirm(discard(change, path)));
+                    }
+                }
+            });
+            if clicked {
                 actions.push(Action::Open(source));
             }
         }
@@ -77,10 +97,12 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     egui::ScrollArea::vertical().id_salt("staged").max_height(half).auto_shrink([false, true]).show(ui, |ui| {
         for &(change, path) in &staged {
             let source = Source::Staged(path.into());
-            let (clicked, unstage) = file(ui, change, path, open == Some(&source), Some("Unstage"));
-            if unstage {
-                actions.push(Action::Run(Op::Unstage(vec![path.into()])));
-            } else if clicked {
+            let clicked = file(ui, change, path, open == Some(&source), |ui| {
+                if ui.small_button("Unstage").clicked() {
+                    actions.push(Action::Run(Op::Unstage(vec![path.into()])));
+                }
+            });
+            if clicked {
                 actions.push(Action::Open(source));
             }
         }
@@ -151,7 +173,7 @@ fn commit(ui: &mut Ui, ws: &mut Workspace, id: ObjectId, actions: &mut Vec<Actio
     egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
         for change in files {
             let source = Source::Commit { commit: sha.clone(), path: change.path.clone() };
-            if file(ui, change.change, &change.path, open == Some(&source), None).0 {
+            if file(ui, change.change, &change.path, open == Some(&source), |_| {}) {
                 actions.push(Action::Open(source));
             }
         }

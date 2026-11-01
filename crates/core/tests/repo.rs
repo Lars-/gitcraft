@@ -170,6 +170,27 @@ fn stage_and_unstage_single_lines() {
 }
 
 #[test]
+fn discard_single_lines_from_the_working_tree() {
+    let (_dir, git) = repo();
+    commit(&git, "f.txt", "1\n2\n3\n4\n5\n", "Numbers");
+    write(&git, "f.txt", "1\nTWO\n3\n4\n5\n");
+    git.apply(&Op::Stage(vec!["f.txt".into()])).unwrap();
+    write(&git, "f.txt", "1\nTWO\n3\nFOUR\n5\nsix");
+
+    let discard = |text: &str| {
+        let unstaged = diff::read(&git, &Source::Unstaged("f.txt".into())).unwrap();
+        git.apply(&Op::DiscardLines(unstaged.patch(|h, i| unstaged.hunks[h].lines[i].text == text, true))).unwrap();
+        fs::read_to_string(git.dir().join("f.txt")).unwrap()
+    };
+    // A discarded removal comes back, a discarded addition goes.
+    assert_eq!(discard("4"), "1\nTWO\n3\n4\nFOUR\n5\nsix");
+    assert_eq!(discard("FOUR"), "1\nTWO\n3\n4\n5\nsix");
+    assert_eq!(discard("six"), "1\nTWO\n3\n4\n5\n");
+    // What was staged stays staged.
+    assert_eq!(status(&git), [("f.txt".into(), Some(Change::Modified), None)]);
+}
+
+#[test]
 fn diffs_of_untracked_files_and_commits() {
     let (_dir, git) = repo();
     let root = commit(&git, "a.txt", "one\ntwo\n", "Root");
