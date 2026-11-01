@@ -196,6 +196,91 @@ fn stage_and_commit_a_change() {
     assert!(harness.query_by_label("Uncommitted changes").is_none());
 }
 
+fn read(git: &Git, path: &str) -> String {
+    fs::read_to_string(git.dir().join(path)).unwrap()
+}
+
+#[test]
+fn discard_a_changed_file_once_confirmed() {
+    let (_dir, git) = repo();
+    fs::write(git.dir().join("file.txt"), "changed").unwrap();
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    harness.run();
+
+    harness.get_by_label("Discard file.txt").click();
+    harness.run();
+    harness.get_by_label("Discard the unstaged changes to file.txt?");
+    harness.get_by_label("Cancel").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "file.txt"), "changed");
+
+    harness.get_by_label("Discard file.txt").click();
+    harness.run();
+    harness.get_by_label("Discard").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "file.txt"), "First commit");
+    assert!(harness.query_by_label("Uncommitted changes").is_none());
+}
+
+#[test]
+fn discarding_an_open_untracked_file_deletes_it_and_closes_it() {
+    let (_dir, git) = repo();
+    fs::write(git.dir().join("new.txt"), "new").unwrap();
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    harness.run();
+    harness.get_by_label("new.txt").click();
+    harness.run();
+    assert!(harness.state().workspace().unwrap().open_file.is_some());
+
+    harness.get_by_label("Discard new.txt").click();
+    harness.run();
+    harness.get_by_label("Delete").click();
+    settle(&mut harness);
+    assert!(!git.dir().join("new.txt").exists());
+    let ws = harness.state().workspace().unwrap();
+    assert!(ws.open_file.is_none(), "the diff of the deleted file closes");
+    assert_eq!(ws.error, None);
+}
+
+#[test]
+fn discard_single_lines_and_hunks() {
+    let (_dir, git) = repo();
+    fs::write(git.dir().join("file.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    harness.run();
+    harness.get_by_label("file.txt").click();
+    harness.run();
+
+    // Pick the line "four", as a click on it does.
+    let file = harness.state_mut().workspace_mut().unwrap().open_file.as_mut().unwrap();
+    let four = file.diff.hunks[0].lines.iter().position(|l| l.text == "four").unwrap();
+    file.lines.insert((0, four));
+    harness.run();
+    harness.get_by_label("Discard 1 line").click();
+    harness.run();
+    harness.get_by_label("Discard").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "file.txt"), "one\ntwo\nthree\n");
+
+    // Escape closes the question and nothing else.
+    harness.get_by_label("Discard hunk").click();
+    harness.run();
+    harness.key_press(Key::Escape);
+    harness.run();
+    assert!(harness.query_by_label("Discard").is_none());
+    assert!(harness.state().workspace().unwrap().open_file.is_some());
+
+    harness.get_by_label("Discard hunk").click();
+    harness.run();
+    harness.get_by_label("Discard").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "file.txt"), "First commit");
+    assert!(harness.query_by_label("Uncommitted changes").is_none());
+}
+
 #[test]
 fn changes_made_outside_show_up_by_themselves() {
     let (_dir, git) = repo();

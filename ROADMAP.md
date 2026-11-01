@@ -22,27 +22,27 @@ drive it the way a user does, and keeps every benchmark as fast as before.
 - [x] Clone and init from the start screen, with progress
 - [x] Tabs: several repositories open at once, remembered between runs
 - [x] Live refresh: watch the working tree and refs, and reload by itself
+- [x] Discard changes per file, hunk or line, after a confirmation
 
 ## Next
 
-1. **Discard** changes per file, hunk or line.
-2. **Confirm destructive actions**: hard reset, deleting a branch with unmerged commits, force push.
-3. **Undo and redo** of the last action, through the reflog.
-4. **Conflicts**: list conflicted files, resolve them in a three-way view (ours, theirs, result),
+1. **Confirm destructive actions**: hard reset, deleting a branch with unmerged commits, force push.
+2. **Undo and redo** of the last action, through the reflog.
+3. **Conflicts**: list conflicted files, resolve them in a three-way view (ours, theirs, result),
    mark them resolved, and continue or abort a merge, rebase or cherry-pick.
-5. **Interactive rebase**: reorder, squash, fix up, reword and drop commits, by dragging in the
+4. **Interactive rebase**: reorder, squash, fix up, reword and drop commits, by dragging in the
    graph.
-6. **Credentials**: ask for a username, password or passphrase when git needs one.
-7. **Push and pull options**: force with lease, push tags, pick the remote, pull with rebase.
-8. **Remotes**: add, edit and remove.
-9. **Search the graph** by message, author or SHA, and jump to any branch or tag.
-10. **File history and blame.**
-11. **Better diffs**: side by side, word-level changes, syntax colouring, images.
-12. **Keyboard**: shortcuts for everything, and a command palette.
-13. **Settings**: light and dark theme, font size, date format, default pull mode.
-14. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
+5. **Credentials**: ask for a username, password or passphrase when git needs one.
+6. **Push and pull options**: force with lease, push tags, pick the remote, pull with rebase.
+7. **Remotes**: add, edit and remove.
+8. **Search the graph** by message, author or SHA, and jump to any branch or tag.
+9. **File history and blame.**
+10. **Better diffs**: side by side, word-level changes, syntax colouring, images.
+11. **Keyboard**: shortcuts for everything, and a command palette.
+12. **Settings**: light and dark theme, font size, date format, default pull mode.
+13. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
     over the network).
-15. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
+14. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
     (AppImage, .deb, Flatpak), signed where the platform expects it.
 
 ## After 1.0

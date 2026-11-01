@@ -38,6 +38,8 @@ pub enum Action {
     ToggleLine(usize, usize),
     /// Ask for a name first.
     Prompt(Prompt),
+    /// Ask whether to go ahead first.
+    Confirm(Confirm),
     /// Open a repository in a tab of its own, or show its tab if it is open.
     OpenRepo(PathBuf),
     /// Show a tab, or the start screen for `None`.
@@ -78,6 +80,17 @@ impl Prompt {
             Self::Tag { at } => Op::Tag { name, at: at.clone() },
         }
     }
+}
+
+/// An operation that throws work away, waiting for the user to go ahead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Confirm {
+    /// What will be lost, as a question.
+    pub question: String,
+    /// The button that goes ahead.
+    pub verb: &'static str,
+    /// The operation.
+    pub op: Op,
 }
 
 /// Everything read in the background after a change.
@@ -158,6 +171,8 @@ pub struct Workspace {
     pub amend: bool,
     /// A name being asked for.
     pub prompt: Option<(Prompt, String)>,
+    /// An operation waiting for the user to go ahead.
+    pub confirm: Option<Confirm>,
     /// The last thing that went wrong.
     pub error: Option<String>,
     /// A graph row to scroll to.
@@ -187,6 +202,7 @@ impl Workspace {
             description: String::new(),
             amend: false,
             prompt: None,
+            confirm: None,
             error: None,
             scroll_to: None,
             visible: 0..0,
@@ -248,6 +264,7 @@ impl Workspace {
                 }
             }
             Action::Prompt(prompt) => self.prompt = Some((prompt, String::new())),
+            Action::Confirm(confirm) => self.confirm = Some(confirm),
             Action::OpenRepo(_) | Action::ShowTab(_) | Action::CloseTab(_) => unreachable!("the app handles tabs"),
         }
     }
@@ -340,6 +357,12 @@ impl Workspace {
             }
         }
         if let Some(file) = &mut self.open_file {
+            // A file in the working tree without changes left, or gone altogether, closes.
+            let entries = &self.snapshot.status.entries;
+            if !matches!(file.source, Source::Commit { .. }) && !entries.iter().any(|e| e.path == file.source.path()) {
+                self.open_file = None;
+                return;
+            }
             match diff::read(&self.repo.git, &file.source) {
                 Ok(diff) => (file.diff, file.lines) = (diff, BTreeSet::new()),
                 Err(error) => self.error = Some(error.to_string()),
