@@ -11,7 +11,7 @@ use egui_kittest::kittest::Queryable;
 use gitcraft_core::git::{Git, Op};
 use tempfile::TempDir;
 
-use crate::app::Selection;
+use crate::app::{Action, Selection};
 use crate::start::percent;
 use crate::ui::{App, KEYS};
 
@@ -286,6 +286,21 @@ fn discard_single_lines_and_hunks() {
     settle(&mut harness);
     assert_eq!(read(&git, "file.txt"), "First commit");
     assert!(harness.query_by_label("Uncommitted changes").is_none());
+}
+
+#[test]
+fn what_is_asked_for_while_git_is_busy_runs_next() {
+    let (_dir, git) = repo();
+    fs::write(git.dir().join("file.txt"), "changed").unwrap();
+    let mut harness = app(Some(git.dir()));
+    let ctx = harness.ctx.clone();
+    let ws = harness.state_mut().workspace_mut().unwrap();
+    ws.apply(&ctx, Action::Refresh);
+    ws.apply(&ctx, Action::Run(Op::Stage(vec!["file.txt".into()])));
+    ws.apply(&ctx, Action::Run(Op::Commit { message: "Second commit".into(), amend: false }));
+    settle(&mut harness);
+
+    assert_eq!(log(&git), "Second commit\nFirst commit\n");
 }
 
 #[test]
