@@ -68,8 +68,9 @@ Its tests run against real repositories made with `git` in a temporary folder
 
 - `app.rs` holds the state. Views never change it directly: they push an `Action`, which
   `Workspace::apply` carries out after the frame. Anything that touches the repository runs on a
-  background thread and is followed by a reload, so the window never waits. The tab on screen
-  also reloads by itself when its watcher saw a change.
+  background thread and is followed by a reload, so the window never waits; what the user asks for
+  in the meantime runs next. The tab on screen also reloads by itself when its watcher saw a
+  change.
 - `start.rs` (open, clone and create), `ui.rs` (tabs and toolbar), `graph.rs`, `sidebar.rs`, `details.rs`
   and `diff.rs` draw the views, and `theme.rs` has the colours.
 
