@@ -97,7 +97,7 @@ impl App {
         for path in std::mem::take(&mut self.pending) {
             self.open(&ctx, &path);
         }
-        self.tabs.iter_mut().for_each(Workspace::poll);
+        self.tabs.iter_mut().for_each(|ws| ws.poll(&ctx));
         // A tab out of sight reloads when it is shown.
         if let Some(ws) = self.workspace_mut() {
             ws.reload_if_changed(&ctx);
@@ -269,8 +269,7 @@ fn confirm(ctx: &egui::Context, ws: &mut Workspace, actions: &mut Vec<Action>) {
         ui.strong(&confirm.question);
         ui.label("This cannot be undone.");
         ui.horizontal(|ui| {
-            let verb = Button::new(egui::RichText::new(confirm.verb).color(theme::ERROR));
-            if ui.add_enabled(ws.busy().is_none(), verb).clicked() {
+            if ui.button(egui::RichText::new(confirm.verb).color(theme::ERROR)).clicked() {
                 actions.push(Action::Run(confirm.op.clone()));
                 done = true;
             }

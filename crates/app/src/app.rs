@@ -180,6 +180,8 @@ pub struct Workspace {
     /// The graph rows on screen.
     pub visible: Range<usize>,
     job: Option<Job>,
+    /// What the user asked for while a job ran, to run after it, in order.
+    queue: Vec<Op>,
     /// Set when something changed since the last reload began.
     changed: Arc<AtomicBool>,
     /// Keeps `changed` up to date.
@@ -207,6 +209,7 @@ impl Workspace {
             scroll_to: None,
             visible: 0..0,
             job: None,
+            queue: Vec::new(),
             changed: Arc::default(),
             watch: None,
             quiet_until: Instant::now(),
@@ -294,7 +297,10 @@ impl Workspace {
     }
 
     fn start(&mut self, ctx: &egui::Context, op: Option<Op>) {
-        if self.job.is_none() {
+        if self.job.is_some() {
+            // A change waits its turn; a reload follows the running job anyway.
+            self.queue.extend(op);
+        } else {
             self.spawn(ctx, op, false);
         }
     }
@@ -322,8 +328,8 @@ impl Workspace {
         self.job = Some(Job { op, outcome, started: Instant::now() });
     }
 
-    /// Takes in the result of the background job, once it is there.
-    pub fn poll(&mut self) {
+    /// Takes in the result of the background job, once it is there, and starts the next.
+    pub fn poll(&mut self, ctx: &egui::Context) {
         let Some(job) = &self.job else { return };
         let (failed, snapshot, watch) = match job.outcome.try_recv() {
             Err(TryRecvError::Empty) => return,
@@ -332,6 +338,10 @@ impl Workspace {
         };
         let job = self.job.take().expect("a job is running");
         self.quiet_until = Instant::now() + job.started.elapsed().max(Duration::from_millis(100));
+        if !self.queue.is_empty() {
+            let next = self.queue.remove(0);
+            self.spawn(ctx, Some(next), false);
+        }
         let op = job.op;
         if failed.is_none() && matches!(op, Some(Op::Commit { .. })) {
             self.summary.clear();
