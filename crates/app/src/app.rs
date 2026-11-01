@@ -363,7 +363,9 @@ impl Workspace {
                 self.open_file = None;
                 return;
             }
+            // The picked lines stay picked as long as the diff stays the same.
             match diff::read(&self.repo.git, &file.source) {
+                Ok(diff) if diff == file.diff => {}
                 Ok(diff) => (file.diff, file.lines) = (diff, BTreeSet::new()),
                 Err(error) => self.error = Some(error.to_string()),
             }
