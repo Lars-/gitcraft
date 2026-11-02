@@ -188,7 +188,7 @@ fn stage_and_commit_a_change() {
     harness.get_by_role_and_label(Role::Button, "First commit");
 
     harness.get_by_label("Uncommitted changes").click();
-    harness.run();
+    settle(&mut harness);
     harness.get_by_label("Stage").click();
     settle(&mut harness);
     harness.state_mut().workspace_mut().unwrap().summary = "Second commit".into();
@@ -450,7 +450,7 @@ fn tabs_open_again_on_the_next_run() {
 /// Picks `path` from the right-click menu of the widget labelled `on`, one item per step.
 fn menu(harness: &mut Harness<'_, App>, on: &str, path: &[&str]) {
     harness.get_by_label(on).click_secondary();
-    harness.run();
+    settle(harness);
     for item in path {
         harness.get_by_label(item).click();
         settle(harness);
