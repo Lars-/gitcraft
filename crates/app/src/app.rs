@@ -40,6 +40,8 @@ pub enum Action {
     Prompt(Prompt),
     /// Ask whether to go ahead first.
     Confirm(Confirm),
+    /// Delete a branch, asking first when no other branch or tag has all of its commits.
+    DeleteBranch(String),
     /// Open a repository in a tab of its own, or show its tab if it is open.
     OpenRepo(PathBuf),
     /// Show a tab, or the start screen for `None`.
@@ -268,6 +270,15 @@ impl Workspace {
             }
             Action::Prompt(prompt) => self.prompt = Some((prompt, String::new())),
             Action::Confirm(confirm) => self.confirm = Some(confirm),
+            Action::DeleteBranch(name) => match self.repo.git.only_on(&name) {
+                Ok(0) => self.start(ctx, Some(Op::DeleteBranch(name))),
+                Ok(lost) => {
+                    let lost = crate::theme::count(lost, "commit");
+                    let question = format!("Delete {name} and the {lost} on no other branch or tag?");
+                    self.confirm = Some(Confirm { question, verb: "Delete", op: Op::DeleteBranch(name) });
+                }
+                Err(error) => self.error = Some(error.to_string()),
+            },
             Action::OpenRepo(_) | Action::ShowTab(_) | Action::CloseTab(_) => unreachable!("the app handles tabs"),
         }
     }

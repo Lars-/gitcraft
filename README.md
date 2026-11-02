@@ -37,8 +37,6 @@ benchmarks against the main branch, and one that makes GitCraft slower does not 
 ## What works
 
 GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what comes next.
-Being an early version, it does not yet ask for confirmation before a hard reset, so take care
-with that one.
 
 - **Start**: open a folder, clone from a URL with git's progress as it goes, or create a new
   repository.
@@ -52,8 +50,11 @@ with that one.
 - **Discard**: throw away the changes to a file, a hunk or single lines, after you confirm.
 - **Branches and tags**: create, check out, merge, rebase, delete, from the sidebar or a right click.
 - **Commits from the graph**: check out, cherry-pick, revert, reset (soft, mixed, hard), copy the SHA.
-- **Remotes**: fetch, pull and push, with how far ahead and behind you are.
+- **Remotes**: fetch, pull and push, with how far ahead and behind you are. A branch that went its
+  own way, after an amend or a rebase, is force pushed with a lease, so nobody else's work is lost.
 - **Stashes**: stash, apply, pop and drop.
+- **Safe by default**: a hard reset, deleting a branch with commits no other branch or tag has, a
+  force push and dropping a stash all ask first, saying what will be lost.
 
 GitCraft runs your own `git` for everything that changes a repository, so your config, hooks,
 credentials and commit signing work exactly as they do on the command line.

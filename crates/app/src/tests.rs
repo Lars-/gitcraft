@@ -446,3 +446,108 @@ fn tabs_open_again_on_the_next_run() {
     let recent: Vec<_> = harness.state().recent.iter().map(|path| fs::canonicalize(path).unwrap()).collect();
     assert_eq!(recent, [a.dir(), b.dir()]);
 }
+
+/// Picks `path` from the right-click menu of the widget labelled `on`, one item per step.
+fn menu(harness: &mut Harness<'_, App>, on: &str, path: &[&str]) {
+    harness.get_by_label(on).click_secondary();
+    harness.run();
+    for item in path {
+        harness.get_by_label(item).click();
+        settle(harness);
+    }
+}
+
+fn rev(git: &Git, rev: &str) -> String {
+    git.run(&["rev-parse", rev]).unwrap()
+}
+
+#[test]
+fn a_hard_reset_asks_first() {
+    let (_dir, git) = repo();
+    let first = rev(&git, "HEAD");
+    commit(&git, "Second commit");
+    fs::write(git.dir().join("file.txt"), "unsaved work").unwrap();
+    let mut harness = app(Some(git.dir()));
+    let reset = ["Reset current branch to this commit", "Hard: discard all changes"];
+
+    menu(&mut harness, "First commit", &reset);
+    harness.get_by_label(&format!("Hard reset main to {}, throwing away every uncommitted change?", &first[..7]));
+    harness.get_by_label("Cancel").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "file.txt"), "unsaved work");
+
+    menu(&mut harness, "First commit", &reset);
+    harness.get_by_label("Reset").click();
+    settle(&mut harness);
+    assert_eq!(log(&git), "First commit\n");
+    assert_eq!(read(&git, "file.txt"), "First commit");
+}
+
+#[test]
+fn deleting_a_branch_asks_only_when_that_loses_commits() {
+    let (_dir, git) = repo();
+    for name in ["merged", "topic"] {
+        git.run(&["branch", name]).unwrap();
+    }
+    git.apply(&Op::Checkout("topic".into())).unwrap();
+    commit(&git, "Work on topic");
+    git.apply(&Op::Checkout("main".into())).unwrap();
+    let mut harness = app(Some(git.dir()));
+
+    menu(&mut harness, "merged", &["Delete merged"]);
+    assert_eq!(git.run(&["branch", "--list", "merged"]).unwrap(), "");
+    assert!(harness.query_by_label("Delete").is_none(), "nothing is lost, so nothing is asked");
+
+    menu(&mut harness, "topic", &["Delete topic"]);
+    harness.get_by_label("Delete topic and the 1 commit on no other branch or tag?");
+    harness.get_by_label("Cancel").click();
+    settle(&mut harness);
+    assert_ne!(git.run(&["branch", "--list", "topic"]).unwrap(), "");
+
+    menu(&mut harness, "topic", &["Delete topic"]);
+    harness.get_by_label("Delete").click();
+    settle(&mut harness);
+    assert_eq!(git.run(&["branch", "--list", "topic"]).unwrap(), "");
+    assert!(harness.query_by_label("Work on topic").is_none());
+}
+
+#[test]
+fn a_branch_that_went_its_own_way_is_force_pushed_once_confirmed() {
+    let (_dir, git) = repo();
+    let remote = tempfile::tempdir().unwrap();
+    Git::new(remote.path()).run(&["init", "-q", "--bare", "-b", "main"]).unwrap();
+    git.run(&["remote", "add", "origin", remote.path().to_str().unwrap()]).unwrap();
+    git.apply(&Op::Push { upstream: Some("origin".into()), force: false }).unwrap();
+    git.apply(&Op::Commit { message: "Amended".into(), amend: true }).unwrap();
+    let pushed = || Git::new(remote.path()).run(&["rev-parse", "main"]).unwrap();
+    let before = pushed();
+    let mut harness = app(Some(git.dir()));
+
+    harness.get_by_label("Push  1").click();
+    settle(&mut harness);
+    harness.get_by_label("Force push main, throwing away the 1 commit on origin/main that it does not have?");
+    harness.get_by_label("Cancel").click();
+    settle(&mut harness);
+    assert_eq!(pushed(), before);
+
+    harness.get_by_label("Push  1").click();
+    settle(&mut harness);
+    harness.get_by_label("Force push").click();
+    settle(&mut harness);
+    assert_eq!(pushed(), rev(&git, "HEAD"));
+    assert_eq!(harness.state().workspace().unwrap().error, None);
+}
+
+#[test]
+fn deleting_a_stash_asks_first() {
+    let (_dir, git) = repo();
+    fs::write(git.dir().join("file.txt"), "stashed").unwrap();
+    git.apply(&Op::Stash("wip".into())).unwrap();
+    let mut harness = app(Some(git.dir()));
+
+    menu(&mut harness, "On main: wip", &["Delete stash"]);
+    harness.get_by_label("Delete the stash \"On main: wip\"?");
+    harness.get_by_label("Delete").click();
+    settle(&mut harness);
+    assert_eq!(git.run(&["stash", "list"]).unwrap(), "");
+}

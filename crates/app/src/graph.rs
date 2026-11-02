@@ -6,7 +6,7 @@ use gitcraft_core::git::{Op, ResetMode};
 use gitcraft_core::graph::{Half, Row};
 use gitcraft_core::repo::{Label as Ref, RefKind};
 
-use crate::app::{Action, Prompt, Selection, Workspace};
+use crate::app::{Action, Confirm, Prompt, Selection, Workspace};
 use crate::theme;
 
 /// The height of a row.
@@ -209,7 +209,18 @@ pub fn commit_menu(ui: &mut Ui, sha: &str, labels: &[Ref], current: Option<&str>
             ("Mixed: keep working copy", ResetMode::Mixed),
             ("Hard: discard all changes", ResetMode::Hard),
         ] {
-            item(ui, text, Action::Run(Op::Reset { to: sha.to_owned(), mode }));
+            let op = Op::Reset { to: sha.to_owned(), mode };
+            let action = if mode == ResetMode::Hard {
+                let question = format!(
+                    "Hard reset {} to {}, throwing away every uncommitted change?",
+                    current.unwrap_or("HEAD"),
+                    &sha[..7]
+                );
+                Action::Confirm(Confirm { question, verb: "Reset", op })
+            } else {
+                Action::Run(op)
+            };
+            item(ui, text, action);
         }
     });
     if ui.button("Copy commit SHA").clicked() {
@@ -232,7 +243,7 @@ pub fn ref_items(ui: &mut Ui, label: &Ref, current: Option<&str>, item: &mut imp
             item(ui, &format!("Merge {name} into {into}"), Action::Run(Op::Merge(name.clone())));
             item(ui, &format!("Rebase {into} onto {name}"), Action::Run(Op::Rebase(name.clone())));
             if kind == RefKind::Local {
-                item(ui, &format!("Delete {name}"), Action::Run(Op::DeleteBranch(name.clone())));
+                item(ui, &format!("Delete {name}"), Action::DeleteBranch(name.clone()));
             }
         }
     }
