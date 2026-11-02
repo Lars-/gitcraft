@@ -343,10 +343,8 @@ fn push_fetch_and_pull_through_a_remote() {
     git.apply(&Op::Push { upstream: None, force: true }).unwrap();
     assert_eq!(Git::new(remote.path()).run(&["rev-parse", "main"]).unwrap(), git.run(&["rev-parse", "HEAD"]).unwrap());
 
-    // The lease refuses to overwrite what someone else pushed since the last fetch.
-    other.apply(&Op::Pull { rebase: true }).unwrap();
-    commit(&other, "c.txt", "c\n", "Later elsewhere");
-    other.apply(&Op::Push { upstream: None, force: false }).unwrap();
+    // The lease refuses to overwrite the remote branch once it changed since the last fetch.
+    Git::new(remote.path()).run(&["update-ref", "refs/heads/main", "main~1"]).unwrap();
     git.apply(&Op::Commit { message: "Amended again".into(), amend: true }).unwrap();
     assert!(git.apply(&Op::Push { upstream: None, force: true }).is_err());
 }
