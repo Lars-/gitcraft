@@ -4,7 +4,7 @@ use eframe::egui::{self, Button, Ui};
 use gitcraft_core::git::Op;
 use gitcraft_core::repo::{Label, RefKind};
 
-use crate::app::{Action, Selection, Workspace};
+use crate::app::{Action, Confirm, Selection, Workspace};
 use crate::graph::ref_items;
 
 /// Shows the sidebar.
@@ -53,13 +53,17 @@ pub fn show(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
             |ui| {
                 for (n, message) in ws.snapshot.stashes.iter().enumerate() {
                     ui.add(Button::selectable(false, message).truncate()).context_menu(|ui| {
-                        for (text, op) in [
-                            ("Apply stash", Op::StashApply(n)),
-                            ("Pop stash", Op::StashPop(n)),
-                            ("Delete stash", Op::StashDrop(n)),
+                        let question = format!("Delete the stash \"{message}\"?");
+                        for (text, action) in [
+                            ("Apply stash", Action::Run(Op::StashApply(n))),
+                            ("Pop stash", Action::Run(Op::StashPop(n))),
+                            (
+                                "Delete stash",
+                                Action::Confirm(Confirm { question, verb: "Delete", op: Op::StashDrop(n) }),
+                            ),
                         ] {
                             if ui.button(text).clicked() {
-                                actions.push(Action::Run(op));
+                                actions.push(action);
                                 ui.close();
                             }
                         }

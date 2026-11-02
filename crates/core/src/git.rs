@@ -34,6 +34,15 @@ impl Git {
         self.run_with(&op.args(), op.input(), &[0])
     }
 
+    /// How many commits of `branch` no other branch, remote branch or tag has: deleting it loses
+    /// them.
+    pub fn only_on(&self, branch: &str) -> Result<usize> {
+        // Branch names cannot hold glob characters, so `--exclude` leaves out this branch alone.
+        let (tip, others) = (format!("refs/heads/{branch}"), format!("--exclude={branch}"));
+        let count = self.run(&["rev-list", "--count", &tip, "--not", &others, "--branches", "--tags", "--remotes"])?;
+        count.trim().parse().map_err(|_| Error::Parse(count))
+    }
+
     /// Runs `git` with `input` on standard input, accepting the exit codes in `ok`.
     pub(crate) fn run_with(&self, args: &[impl AsRef<OsStr>], input: Option<&[u8]>, ok: &[i32]) -> Result<String> {
         let output = self.output(args, input)?;
@@ -185,7 +194,7 @@ pub enum Op {
         /// Where it starts.
         at: String,
     },
-    /// Delete a merged branch.
+    /// Delete a branch, also when that loses commits (see [`Git::only_on`]).
     DeleteBranch(String),
     /// Merge into the current branch.
     Merge(String),
@@ -256,7 +265,7 @@ impl Op {
             Self::Commit { amend, .. } => (&["commit", "-q", "--cleanup=strip", "-F", "-"], flag(*amend, "--amend")),
             Self::Checkout(target) => (&["checkout", "-q"], vec![target]),
             Self::Branch { name, at } => (&["checkout", "-q", "-b"], vec![name, at]),
-            Self::DeleteBranch(name) => (&["branch", "-d"], vec![name]),
+            Self::DeleteBranch(name) => (&["branch", "-D"], vec![name]),
             Self::Merge(target) => (&["merge", "--no-edit"], vec![target]),
             Self::Rebase(onto) => (&["rebase"], vec![onto]),
             Self::CherryPick(commit) => (&["cherry-pick"], vec![commit]),

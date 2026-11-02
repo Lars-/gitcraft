@@ -227,6 +227,34 @@ fn commit_amend_branch_and_checkout() {
 }
 
 #[test]
+fn a_branch_counts_the_commits_no_other_ref_has() {
+    let (_dir, git) = repo();
+    commit(&git, "a.txt", "a\n", "Root");
+    git.apply(&Op::Branch { name: "topic".into(), at: "HEAD".into() }).unwrap();
+    commit(&git, "t.txt", "1\n", "One");
+    commit(&git, "t.txt", "2\n", "Two");
+    git.apply(&Op::Checkout("main".into())).unwrap();
+    assert_eq!(git.only_on("main").unwrap(), 0);
+    assert_eq!(git.only_on("topic").unwrap(), 2);
+
+    // A tag, a remote branch or another branch keeps them, also one whose name starts the same.
+    git.apply(&Op::Tag { name: "v1".into(), at: "topic~1".into() }).unwrap();
+    assert_eq!(git.only_on("topic").unwrap(), 1);
+    git.run(&["update-ref", "refs/remotes/origin/topic", "topic"]).unwrap();
+    assert_eq!(git.only_on("topic").unwrap(), 0);
+    git.run(&["update-ref", "-d", "refs/remotes/origin/topic"]).unwrap();
+    git.apply(&Op::Branch { name: "topic-2".into(), at: "topic".into() }).unwrap();
+    assert_eq!(git.only_on("topic").unwrap(), 0);
+    git.apply(&Op::Checkout("main".into())).unwrap();
+    git.apply(&Op::DeleteBranch("topic-2".into())).unwrap();
+
+    // Deleting goes ahead anyway: the app asks first.
+    git.apply(&Op::DeleteBranch("topic".into())).unwrap();
+    assert_eq!(git.run(&["branch", "--list", "topic"]).unwrap(), "");
+    assert!(git.only_on("topic").is_err());
+}
+
+#[test]
 fn rebase_cherry_pick_revert_and_reset() {
     let (_dir, git) = repo();
     let root = commit(&git, "a.txt", "a\n", "Root");
@@ -306,6 +334,19 @@ fn push_fetch_and_pull_through_a_remote() {
     let status = Status::read(&git).unwrap();
     assert_eq!((status.ahead, status.behind), (0, 0));
     assert!(git.dir().join("b.txt").exists());
+
+    // After an amend the branch went its own way: only a force push gets it there.
+    git.apply(&Op::Commit { message: "Amended".into(), amend: true }).unwrap();
+    let status = Status::read(&git).unwrap();
+    assert_eq!((status.ahead, status.behind), (1, 1));
+    assert!(git.apply(&Op::Push { upstream: None, force: false }).is_err());
+    git.apply(&Op::Push { upstream: None, force: true }).unwrap();
+    assert_eq!(Git::new(remote.path()).run(&["rev-parse", "main"]).unwrap(), git.run(&["rev-parse", "HEAD"]).unwrap());
+
+    // The lease refuses to overwrite the remote branch once it changed since the last fetch.
+    Git::new(remote.path()).run(&["update-ref", "refs/heads/main", "main~1"]).unwrap();
+    git.apply(&Op::Commit { message: "Amended again".into(), amend: true }).unwrap();
+    assert!(git.apply(&Op::Push { upstream: None, force: true }).is_err());
 }
 
 #[test]

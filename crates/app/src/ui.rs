@@ -6,7 +6,7 @@ use eframe::egui::{self, Button, Key, Role, Ui, WidgetInfo};
 use gitcraft_core::git::Op;
 use gitcraft_core::repo::{RefKind, Repo};
 
-use crate::app::{Action, Selection, Workspace};
+use crate::app::{Action, Confirm, Selection, Workspace};
 use crate::start::Start;
 use crate::{details, diff, graph, sidebar, theme};
 
@@ -208,14 +208,20 @@ fn toolbar(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
             Some(Selection::Commit(id)) => id.to_string(),
             _ => "HEAD".to_owned(),
         };
+        let push = match (&status.branch, &status.upstream) {
+            // A branch that went its own way since the last push only gets there by force.
+            (Some(branch), Some(upstream)) if status.ahead > 0 && status.behind > 0 => {
+                let lost = theme::count(status.behind as usize, "commit");
+                let question =
+                    format!("Force push {branch}, throwing away the {lost} on {upstream} that it does not have?");
+                Action::Confirm(Confirm { question, verb: "Force push", op: Op::Push { upstream: None, force: true } })
+            }
+            _ => Action::Run(Op::Push { upstream: status.upstream.is_none().then(|| remote.to_owned()), force: false }),
+        };
         let buttons = [
             ("Fetch", true, Action::Run(Op::Fetch)),
             (&count("Pull", status.behind), true, Action::Run(Op::Pull { rebase: false })),
-            (
-                &count("Push", status.ahead),
-                status.branch.is_some(),
-                Action::Run(Op::Push { upstream: status.upstream.is_none().then(|| remote.to_owned()), force: false }),
-            ),
+            (&count("Push", status.ahead), status.branch.is_some(), push),
             ("Branch", true, Action::Prompt(crate::app::Prompt::Branch { at })),
             (
                 "Stash",
