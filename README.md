@@ -53,6 +53,10 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
 - **Remotes**: fetch, pull and push, with how far ahead and behind you are. A branch that went its
   own way, after an amend or a rebase, is force pushed with a lease, so nobody else's work is lost.
 - **Stashes**: stash, apply, pop and drop.
+- **Undo and redo**: take back a commit, an amend, a checkout, a merge, a pull, a rebase, a
+  cherry-pick, a revert or a reset, one step at a time, and do it again. It reads git's reflog, so
+  it works for what you did on the command line too. Undoing a commit puts its changes back in the
+  index; your uncommitted work stays where it is.
 - **Safe by default**: a hard reset, deleting a branch with commits no other branch or tag has, a
   force push and dropping a stash all ask first, saying what will be lost.
 

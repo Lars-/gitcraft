@@ -31,7 +31,12 @@ impl Git {
 
     /// Carries out `op`.
     pub fn apply(&self, op: &Op) -> Result<String> {
-        self.run_with(&op.args(), op.input(), &[0])
+        let args = op.args();
+        let mut command = self.command(&args);
+        if let Op::Undo { mark, .. } = op {
+            command.env("GIT_REFLOG_ACTION", mark);
+        }
+        checked(&args, &output(command, op.input())?, &[0])
     }
 
     /// How many commits of `branch` no other branch, remote branch or tag has: deleting it loses
@@ -45,11 +50,7 @@ impl Git {
 
     /// Runs `git` with `input` on standard input, accepting the exit codes in `ok`.
     pub(crate) fn run_with(&self, args: &[impl AsRef<OsStr>], input: Option<&[u8]>, ok: &[i32]) -> Result<String> {
-        let output = self.output(args, input)?;
-        if output.status.code().is_some_and(|code| ok.contains(&code)) {
-            return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
-        }
-        Err(failed(args, &output.stderr))
+        checked(args, &output(self.command(args), input)?, ok)
     }
 
     fn command(&self, args: &[impl AsRef<OsStr>]) -> Command {
@@ -70,24 +71,32 @@ impl Git {
         }
         command
     }
+}
 
-    fn output(&self, args: &[impl AsRef<OsStr>], input: Option<&[u8]>) -> Result<Output> {
-        let mut child = self
-            .command(args)
-            .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        let stdin = child.stdin.take();
-        std::thread::scope(|scope| {
-            if let (Some(mut stdin), Some(input)) = (stdin, input) {
-                // A failed write means git stopped reading; its exit status says why.
-                scope.spawn(move || stdin.write_all(input));
-            }
-            child.wait_with_output()
-        })
-        .map_err(Error::from)
+/// Runs `command` with `input` on standard input.
+fn output(mut command: Command, input: Option<&[u8]>) -> Result<Output> {
+    let mut child = command
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let stdin = child.stdin.take();
+    std::thread::scope(|scope| {
+        if let (Some(mut stdin), Some(input)) = (stdin, input) {
+            // A failed write means git stopped reading; its exit status says why.
+            scope.spawn(move || stdin.write_all(input));
+        }
+        child.wait_with_output()
+    })
+    .map_err(Error::from)
+}
+
+/// What git printed, when it exited with a code in `ok`.
+fn checked(args: &[impl AsRef<OsStr>], output: &Output, ok: &[i32]) -> Result<String> {
+    if output.status.code().is_some_and(|code| ok.contains(&code)) {
+        return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
     }
+    Err(failed(args, &output.stderr))
 }
 
 /// Creates an empty repository in `dir`, making the folder if it is not there.
@@ -137,15 +146,22 @@ pub enum ResetMode {
     Mixed,
     /// Discard everything.
     Hard,
+    /// Keep uncommitted changes, and stop when the move would overwrite one.
+    Keep,
 }
 
 impl ResetMode {
-    fn flag(self) -> &'static str {
+    pub(crate) fn flag(self) -> &'static str {
         match self {
             Self::Soft => "--soft",
             Self::Mixed => "--mixed",
             Self::Hard => "--hard",
+            Self::Keep => "--keep",
         }
+    }
+
+    pub(crate) fn from_flag(flag: &str) -> Option<Self> {
+        [Self::Soft, Self::Mixed, Self::Hard, Self::Keep].into_iter().find(|mode| mode.flag() == flag)
     }
 }
 
@@ -242,6 +258,13 @@ pub enum Op {
         /// Overwrite the remote branch, unless someone else pushed to it.
         force: bool,
     },
+    /// Undo or redo an action with a checkout or a reset (see [`crate::undo`]).
+    Undo {
+        /// What its line in the reflog starts with: `undo` or `redo`, and the reset mode.
+        mark: String,
+        /// The checkout or the reset.
+        op: Box<Op>,
+    },
 }
 
 impl Op {
@@ -286,6 +309,7 @@ impl Op {
                 }
                 (&["push", "-q"], rest)
             }
+            Self::Undo { op, .. } => return op.args(),
         };
         command.iter().copied().chain(rest).map(str::to_owned).collect()
     }

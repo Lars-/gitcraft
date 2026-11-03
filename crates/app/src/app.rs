@@ -16,6 +16,7 @@ use gitcraft_core::diff::{self, FileDiff, Source};
 use gitcraft_core::git::Op;
 use gitcraft_core::repo::{Commit, History, Repo};
 use gitcraft_core::status::{self, FileChange, Status};
+use gitcraft_core::undo::{self, Undo};
 use gitcraft_core::watch::Watch;
 use gitcraft_core::{ObjectId, Result};
 
@@ -104,11 +105,19 @@ pub struct Snapshot {
     pub status: Status,
     /// The stash messages, newest first.
     pub stashes: Vec<String>,
+    /// What undo and redo would do.
+    pub undo: Undo,
 }
 
 impl Snapshot {
     fn load(repo: &Repo) -> Result<Self> {
-        Ok(Self { history: repo.history()?, status: Status::read(&repo.git)?, stashes: status::stashes(&repo.git)? })
+        let status = Status::read(&repo.git)?;
+        Ok(Self {
+            history: repo.history()?,
+            undo: undo::read(repo, &status)?,
+            stashes: status::stashes(&repo.git)?,
+            status,
+        })
     }
 }
 

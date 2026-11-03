@@ -201,6 +201,14 @@ fn toolbar(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
         ui.strong(status.branch.as_deref().unwrap_or("detached HEAD"));
         ui.separator();
         let idle = ws.busy().is_none();
+        for (verb, step) in [("Undo", &ws.snapshot.undo.last), ("Redo", &ws.snapshot.undo.undone)] {
+            let button = ui.add_enabled(idle && step.is_some(), Button::new(verb));
+            if let Some(step) = step
+                && button.on_hover_text(format!("{verb} {}", step.what)).clicked()
+            {
+                actions.push(Action::Run(step.op.clone()));
+            }
+        }
         let count = |label: &str, n: u32| if n > 0 { format!("{label}  {n}") } else { label.to_owned() };
         let remote = ws.snapshot.history.labels.values().flatten().find(|l| l.kind == RefKind::Remote);
         let remote = remote.and_then(|l| l.name.split_once('/')).map_or("origin", |(remote, _)| remote);

@@ -8,6 +8,7 @@ use gitcraft_core::diff::{self, FileDiff, LineKind, Source};
 use gitcraft_core::git::{self, Git, Op, ResetMode};
 use gitcraft_core::repo::{Label, RefKind, Repo};
 use gitcraft_core::status::{self, Change, Status};
+use gitcraft_core::undo::{self, Move, Undo};
 use gitcraft_core::watch::Watch;
 use gitcraft_core::{Error, ObjectId};
 use tempfile::TempDir;
@@ -280,6 +281,104 @@ fn rebase_cherry_pick_revert_and_reset() {
     assert_eq!(status(&git), [("t.txt".into(), None, Some(Change::Deleted))]);
     git.apply(&Op::Reset { to: tip, mode: ResetMode::Hard }).unwrap();
     assert!(Status::read(&git).unwrap().is_clean());
+}
+
+/// What undo and redo would do now.
+fn undo(git: &Git) -> Undo {
+    undo::read(&Repo::open(git.dir()).unwrap(), &Status::read(git).unwrap()).unwrap()
+}
+
+fn what(step: Option<&Move>) -> Option<&str> {
+    step.map(|step| step.what.as_str())
+}
+
+fn branch(git: &Git) -> String {
+    git.run(&["branch", "--show-current"]).unwrap().trim().to_owned()
+}
+
+#[test]
+fn undo_and_redo_walk_through_the_reflog() {
+    let (_dir, git) = repo();
+    let root = commit(&git, "a.txt", "a\n", "Root");
+    let second = commit(&git, "a.txt", "a\nb\n", "Second");
+    git.apply(&Op::Branch { name: "feature".into(), at: root.clone() }).unwrap();
+
+    // Back one action at a time: the checkout, then the commit, whose change is staged again.
+    let steps = undo(&git);
+    assert_eq!(what(steps.last.as_ref()), Some("checkout: moving from main to feature"));
+    assert_eq!(steps.undone, None);
+    git.apply(&steps.last.unwrap().op).unwrap();
+    assert_eq!((branch(&git), head(&git)), ("main".into(), second.clone()));
+    let steps = undo(&git);
+    assert_eq!(what(steps.last.as_ref()), Some("commit: Second"));
+    git.apply(&steps.last.unwrap().op).unwrap();
+    assert_eq!(head(&git), root);
+    assert_eq!(status(&git), [("a.txt".into(), Some(Change::Modified), None)]);
+    assert_eq!(undo(&git).last, None, "the first commit cannot be undone");
+
+    // Forward again, in the same order.
+    let steps = undo(&git);
+    assert_eq!(what(steps.undone.as_ref()), Some("commit: Second"));
+    git.apply(&steps.undone.unwrap().op).unwrap();
+    assert_eq!(head(&git), second);
+    assert!(Status::read(&git).unwrap().is_clean());
+    git.apply(&undo(&git).undone.unwrap().op).unwrap();
+    assert_eq!((branch(&git), head(&git)), ("feature".into(), root));
+    assert_eq!(undo(&git).undone, None);
+
+    // A new action after an undo leaves nothing to redo.
+    git.apply(&undo(&git).last.unwrap().op).unwrap();
+    commit(&git, "b.txt", "b\n", "Third");
+    let steps = undo(&git);
+    assert_eq!((what(steps.last.as_ref()), steps.undone), (Some("commit: Third"), None));
+}
+
+#[test]
+fn undo_a_reset_the_way_it_left_things_and_redo_it() {
+    for mode in [ResetMode::Soft, ResetMode::Mixed, ResetMode::Hard] {
+        let (_dir, git) = repo();
+        let root = commit(&git, "a.txt", "a\n", "Root");
+        write(&git, "a.txt", "a\nb\n");
+        git.apply(&Op::Stage(vec!["a.txt".into()])).unwrap();
+        let second = commit(&git, "new.txt", "new\n", "Second");
+        git.apply(&Op::Reset { to: root.clone(), mode }).unwrap();
+        let left = status(&git);
+
+        git.apply(&undo(&git).last.unwrap().op).unwrap();
+        assert_eq!(head(&git), second, "{mode:?}");
+        assert!(Status::read(&git).unwrap().is_clean(), "{mode:?}");
+        git.apply(&undo(&git).undone.unwrap().op).unwrap();
+        assert_eq!((head(&git), status(&git)), (root, left), "{mode:?}");
+    }
+}
+
+#[test]
+fn a_rebase_is_one_action_and_undo_keeps_uncommitted_work() {
+    let (_dir, git) = repo();
+    let root = commit(&git, "a.txt", "a\n", "Root");
+    git.apply(&Op::Branch { name: "topic".into(), at: root }).unwrap();
+    commit(&git, "t.txt", "1\n", "One");
+    let topic = commit(&git, "t.txt", "2\n", "Two");
+    git.apply(&Op::Checkout("main".into())).unwrap();
+    commit(&git, "m.txt", "m\n", "Main");
+    git.apply(&Op::Checkout("topic".into())).unwrap();
+    // Made on the command line, like any other action.
+    git.run(&["rebase", "-q", "main"]).unwrap();
+    write(&git, "a.txt", "work in progress\n");
+
+    let steps = undo(&git);
+    assert_eq!(what(steps.last.as_ref()), Some("rebase"));
+    git.apply(&steps.last.unwrap().op).unwrap();
+    assert_eq!((branch(&git), head(&git)), ("topic".into(), topic));
+    assert_eq!(status(&git), [("a.txt".into(), None, Some(Change::Modified))]);
+
+    // Nothing while a rebase is under way; once aborted, the action before it.
+    git.apply(&Op::Discard(vec!["a.txt".into()])).unwrap();
+    commit(&git, "m.txt", "clash\n", "Clash");
+    assert!(git.apply(&Op::Rebase("main".into())).is_err());
+    assert_eq!(undo(&git), Undo::default());
+    git.run(&["rebase", "--abort"]).unwrap();
+    assert_eq!(what(undo(&git).last.as_ref()), Some("commit: Clash"));
 }
 
 #[test]

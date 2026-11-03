@@ -60,6 +60,9 @@ There are two crates.
 - `watch.rs` watches the working tree and the refs, and says when something changed that git
   does not ignore. Reading should not write (`git status` runs without optional locks): a write
   wakes the watcher again.
+- `undo.rs` reads the reflog of `HEAD` to tell what undo and redo do: a checkout or a reset to
+  where an action started or ended. Its own lines in the reflog start with `undo` or `redo`, so
+  the next undo goes one step further back.
 
 Its tests run against real repositories made with `git` in a temporary folder
 (`crates/core/tests`), plus property tests for the graph layout.

@@ -201,6 +201,24 @@ fn stage_and_commit_a_change() {
     assert!(harness.query_by_label("Uncommitted changes").is_none());
 }
 
+#[test]
+fn undo_a_commit_and_redo_it() {
+    let (_dir, git) = repo();
+    commit(&git, "Second commit");
+    let mut harness = app(Some(git.dir()));
+
+    harness.get_by_label("Undo").click();
+    settle(&mut harness);
+    assert_eq!(log(&git), "First commit\n");
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    harness.get_by_label("Unstage");
+    harness.get_by_label("Redo").click();
+    settle(&mut harness);
+    assert_eq!(log(&git), "Second commit\nFirst commit\n");
+    assert!(harness.query_by_label("Uncommitted changes").is_none());
+}
+
 fn read(git: &Git, path: &str) -> String {
     fs::read_to_string(git.dir().join(path)).unwrap()
 }

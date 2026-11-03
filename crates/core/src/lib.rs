@@ -11,6 +11,7 @@ pub mod git;
 pub mod graph;
 pub mod repo;
 pub mod status;
+pub mod undo;
 pub mod watch;
 
 pub use error::{Error, Result};
