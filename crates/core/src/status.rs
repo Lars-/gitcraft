@@ -21,7 +21,12 @@ pub enum Change {
     /// Git does not track the file yet.
     Untracked,
     /// A merge left conflicts in the file.
-    Conflicted,
+    Conflicted {
+        /// Whether `HEAD` has the file; `false` when it deleted it.
+        ours: bool,
+        /// Whether the commit coming in has the file.
+        theirs: bool,
+    },
 }
 
 impl Change {
@@ -105,7 +110,13 @@ impl Status {
                     let path = parts.get(8).ok_or_else(bad)?;
                     entry(path, Some(fields.next().ok_or_else(bad)?), xy(parts[0]))
                 }
-                "u" => entry(rest.splitn(10, ' ').nth(9).ok_or_else(bad)?, None, (None, Some(Change::Conflicted))),
+                "u" => {
+                    let parts: Vec<_> = rest.splitn(10, ' ').collect();
+                    let path = parts.get(9).ok_or_else(bad)?;
+                    // The modes of our and their file; `000000` when that side has none.
+                    let change = Change::Conflicted { ours: parts[3] != "000000", theirs: parts[4] != "000000" };
+                    entry(path, None, (None, Some(change)))
+                }
                 "?" => entry(rest, None, (None, Some(Change::Untracked))),
                 "!" => continue,
                 _ => return Err(bad()),
@@ -197,6 +208,7 @@ mod tests {
             "2 R. N... 100644 100644 100644 aaa bbb R100 new name.rs",
             "old name.rs",
             "u UU N... 100644 100644 100644 100644 a b c conflict.rs",
+            "u DU N... 100644 000000 100644 100644 a b c deleted by us.rs",
             "? notes.md",
             "! target",
             "",
@@ -214,7 +226,8 @@ mod tests {
                 ("src/main.rs", None, None, Some(Change::Modified)),
                 ("with space.txt", None, Some(Change::Added), None),
                 ("new name.rs", Some("old name.rs"), Some(Change::Renamed), None),
-                ("conflict.rs", None, None, Some(Change::Conflicted)),
+                ("conflict.rs", None, None, Some(Change::Conflicted { ours: true, theirs: true })),
+                ("deleted by us.rs", None, None, Some(Change::Conflicted { ours: false, theirs: true })),
                 ("notes.md", None, None, Some(Change::Untracked)),
             ]
         );
@@ -231,6 +244,7 @@ mod tests {
     fn rejects_what_it_does_not_know() {
         assert!(Status::parse("x something\0").is_err());
         assert!(Status::parse("1 .M\0").is_err());
+        assert!(Status::parse("u UU N... 100644\0").is_err());
         assert!(Status::parse("# branch.ab +x -1\0").is_err());
         assert!(parse_name_status("Z\0path\0").is_err());
     }

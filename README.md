@@ -53,6 +53,9 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
 - **Remotes**: fetch, pull and push, with how far ahead and behind you are. A branch that went its
   own way, after an amend or a rebase, is force pushed with a lease, so nobody else's work is lost.
 - **Stashes**: stash, apply, pop and drop.
+- **Conflicts**: when a merge, rebase, cherry-pick or revert stops at a conflict, a bar says so and
+  counts the conflicted files. Take a whole file from your side or theirs (also when one side
+  deleted it), or edit it and mark it resolved, then continue, skip the commit, or abort.
 - **Undo and redo**: take back a commit, an amend, a checkout, a merge, a pull, a rebase, a
   cherry-pick, a revert or a reset, one step at a time, and do it again. It reads git's reflog, so
   it works for what you did on the command line too. Undoing a commit puts its changes back in the

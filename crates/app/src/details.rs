@@ -48,7 +48,29 @@ fn discard(change: Change, path: &str) -> Confirm {
     Confirm { question, verb: "Discard", op: Op::Discard(vec![path.into()]) }
 }
 
+/// The buttons of a conflicted file: take the whole file from one of the `sides` (name, commit,
+/// whether it has the file), when git says what they are, or mark it resolved as it is now.
+fn resolve(ui: &mut Ui, path: &str, sides: Option<[(&str, &str, bool); 2]>, actions: &mut Vec<Action>) {
+    for (side, from, has) in sides.into_iter().flatten() {
+        let (op, hint) = if has {
+            (Op::Restore { from: from.into(), paths: vec![path.into()] }, format!("Take the whole file from {from}"))
+        } else {
+            (Op::Remove(vec![path.into()]), format!("Delete the file, as {from} did"))
+        };
+        let button = ui.small_button(side).on_hover_text(hint);
+        let name = format!("Take {} for {path}", side.to_lowercase());
+        button.widget_info(|| WidgetInfo::labeled(Role::Button, true, &name));
+        if button.clicked() {
+            actions.push(Action::Run(op));
+        }
+    }
+    if ui.small_button("Mark resolved").clicked() {
+        actions.push(Action::Run(Op::Stage(vec![path.into()])));
+    }
+}
+
 fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
+    let underway = ws.snapshot.underway.as_ref();
     let open = ws.open_file.as_ref().map(|f| &f.source);
     let entries = &ws.snapshot.status.entries;
     let unstaged: Vec<_> = entries.iter().filter_map(|e| Some((e.unstaged?, e.path.as_str()))).collect();
@@ -69,20 +91,30 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
             } else {
                 Source::Unstaged(path.into())
             };
+            let conflicted = matches!(change, Change::Conflicted { .. });
             let clicked = file(ui, change, path, open == Some(&source), |ui| {
+                // A conflicted file has its buttons on a line of their own, below.
+                if conflicted {
+                    return;
+                }
                 if ui.small_button("Stage").clicked() {
                     actions.push(Action::Run(Op::Stage(vec![path.into()])));
                 }
-                // Conflicts are resolved, not discarded.
-                if change != Change::Conflicted {
-                    let button = ui.small_button("Discard");
-                    button.widget_info(|| WidgetInfo::labeled(Role::Button, true, format!("Discard {path}")));
-                    if button.clicked() {
-                        actions.push(Action::Confirm(discard(change, path)));
-                    }
+                let button = ui.small_button("Discard");
+                button.widget_info(|| WidgetInfo::labeled(Role::Button, true, format!("Discard {path}")));
+                if button.clicked() {
+                    actions.push(Action::Confirm(discard(change, path)));
                 }
             });
-            if clicked {
+            if let Change::Conflicted { ours, theirs } = change {
+                let sides = underway.map(|u| [("Ours", "HEAD", ours), ("Theirs", u.theirs, theirs)]);
+                ui.horizontal(|ui| {
+                    ui.add_space(16.0);
+                    resolve(ui, path, sides, actions);
+                });
+            }
+            // `git diff` shows a conflict in a form of its own, which has no view yet.
+            if clicked && !conflicted {
                 actions.push(Action::Open(source));
             }
         }

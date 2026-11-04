@@ -48,7 +48,7 @@ There are two crates.
 **`crates/core` (`gitcraft-core`)** knows nothing about the screen.
 
 - `repo.rs` reads the history, refs and commits with gitoxide, in-process, because the graph needs
-  millions of lookups.
+  millions of lookups, and what is under way: a merge, rebase, cherry-pick or revert that stopped.
 - `graph.rs` orders commits (`git log --date-order`) and lays out the lanes. It keeps a snapshot of
   the lanes every 256 rows, so it only ever builds the rows on screen.
 - `git.rs` runs the user's own `git` for everything else. Every change to a repository is one

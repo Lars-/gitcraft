@@ -142,8 +142,8 @@ pub fn read(repo: &Repo, status: &Status) -> Result<Undo> {
             }
         }
     }
-    // A rebase under way, or a move the log does not know of, leaves nothing to undo.
-    if rebase.is_some() || at != repo.gix.head_id().ok().map(gix::Id::detach) {
+    // Something under way, or a move the log does not know of, leaves nothing to undo.
+    if rebase.is_some() || repo.underway().is_some() || at != repo.gix.head_id().ok().map(gix::Id::detach) {
         return Ok(Undo::default());
     }
     Ok(Undo {
