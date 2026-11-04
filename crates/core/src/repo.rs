@@ -81,7 +81,36 @@ impl Commit {
     }
 }
 
+/// A merge, rebase, cherry-pick or revert that stopped half way, mostly at a conflict.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Underway {
+    /// The command that started it and carries on with it: `merge`, `rebase`, `cherry-pick` or
+    /// `revert`.
+    pub command: &'static str,
+    /// The commit whose changes come in, which git calls theirs; ours is `HEAD`.
+    pub theirs: &'static str,
+    /// The first line of the message for the commit it makes next.
+    pub message: String,
+}
+
 impl Repo {
+    /// What stopped half way, if anything.
+    pub fn underway(&self) -> Option<Underway> {
+        use gix::state::InProgress;
+        let (command, theirs) = match self.gix.state()? {
+            InProgress::Merge => ("merge", "MERGE_HEAD"),
+            InProgress::Rebase | InProgress::RebaseInteractive => ("rebase", "REBASE_HEAD"),
+            InProgress::CherryPick | InProgress::CherryPickSequence => ("cherry-pick", "CHERRY_PICK_HEAD"),
+            // A revert takes out the changes of a commit, so what comes in is its parent.
+            InProgress::Revert | InProgress::RevertSequence => ("revert", "REVERT_HEAD^"),
+            InProgress::ApplyMailbox | InProgress::ApplyMailboxRebase | InProgress::Bisect => return None,
+        };
+        // The message is only shown. Without one, as when a rebase stopped to edit a commit, the
+        // rest works the same.
+        let message = std::fs::read_to_string(self.gix.path().join("MERGE_MSG")).unwrap_or_default();
+        Some(Underway { command, theirs, message: message.lines().next().unwrap_or_default().to_owned() })
+    }
+
     /// Opens the repository that contains `path`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let mut gix = gix::discover(path).map_err(Error::repository)?;

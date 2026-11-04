@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use eframe::egui::{self, Button, Key, Role, Ui, WidgetInfo};
 use gitcraft_core::git::Op;
 use gitcraft_core::repo::{RefKind, Repo};
+use gitcraft_core::status::Change;
 
 use crate::app::{Action, Confirm, Selection, Workspace};
 use crate::start::Start;
@@ -177,6 +178,9 @@ fn workspace(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     prompt(ui.ctx(), ws, actions);
     confirm(ui.ctx(), ws, actions);
     egui::Panel::top("toolbar").show(ui, |ui| toolbar(ui, ws, actions));
+    if ws.snapshot.underway.is_some() {
+        egui::Panel::top("underway").show(ui, |ui| underway(ui, ws, actions));
+    }
     if let Some(error) = ws.error.clone() {
         egui::Panel::bottom("error").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -247,6 +251,33 @@ fn toolbar(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
         if let Some(busy) = ws.busy() {
             ui.spinner();
             ui.weak(busy);
+        }
+    });
+}
+
+/// What stopped half way, the conflicts left, and the ways on from there.
+fn underway(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
+    let Some(underway) = &ws.snapshot.underway else { return };
+    let entries = &ws.snapshot.status.entries;
+    let conflicts = entries.iter().filter(|e| matches!(e.unstaged, Some(Change::Conflicted { .. }))).count();
+    let (command, idle) = (underway.command, ws.busy().is_none());
+    ui.horizontal(|ui| {
+        let (first, rest) = command.split_at(1);
+        ui.strong(format!("{}{rest} in progress", first.to_uppercase()));
+        ui.weak(&underway.message);
+        if conflicts > 0 {
+            ui.colored_label(theme::ERROR, theme::count(conflicts, "conflicted file"));
+        }
+        let go_on = ui.add_enabled(idle && conflicts == 0, Button::new("Continue"));
+        if go_on.on_disabled_hover_text("Resolve every conflict first").clicked() {
+            actions.push(Action::Run(Op::Continue(command)));
+        }
+        // A merge has no commit of its own to leave out.
+        let skip = (command != "merge").then_some(("Skip", Op::Skip(command)));
+        for (verb, op) in skip.into_iter().chain([("Abort", Op::Abort(command))]) {
+            if ui.add_enabled(idle, Button::new(verb)).clicked() {
+                actions.push(Action::Run(op));
+            }
         }
     });
 }

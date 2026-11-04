@@ -184,6 +184,16 @@ pub enum Op {
     Discard(Vec<String>),
     /// Delete untracked files.
     DeleteUntracked(Vec<String>),
+    /// Put files in the index and the working tree as a commit has them, which also resolves
+    /// their conflicts.
+    Restore {
+        /// The commit.
+        from: String,
+        /// The files.
+        paths: Vec<String>,
+    },
+    /// Delete tracked files from the index and the working tree.
+    Remove(Vec<String>),
     /// Apply a patch to the index, or take it out with `reverse`.
     ApplyToIndex {
         /// The patch, as built by [`crate::diff::FileDiff::patch`].
@@ -220,6 +230,12 @@ pub enum Op {
     CherryPick(String),
     /// Add a commit that undoes another.
     Revert(String),
+    /// Carry on with what stopped half way, given as its command (see [`crate::repo::Underway`]).
+    Continue(&'static str),
+    /// Leave out the commit it stopped at, and carry on.
+    Skip(&'static str),
+    /// Go back to where it started.
+    Abort(&'static str),
     /// Move the current branch.
     Reset {
         /// Where to.
@@ -281,6 +297,10 @@ impl Op {
             Self::Unstage(paths) => (&["reset", "-q", "--"], strs(paths)),
             Self::Discard(paths) => (&["checkout", "-q", "--"], strs(paths)),
             Self::DeleteUntracked(paths) => (&["clean", "-f", "-q", "--"], strs(paths)),
+            Self::Restore { from, paths } => {
+                (&["restore", "--staged", "--worktree", "--source"], [vec![from.as_str(), "--"], strs(paths)].concat())
+            }
+            Self::Remove(paths) => (&["rm", "-q", "--"], strs(paths)),
             Self::ApplyToIndex { reverse, .. } => {
                 (&["apply", "--cached", "--recount"], [flag(*reverse, "--reverse"), vec!["-"]].concat())
             }
@@ -293,6 +313,9 @@ impl Op {
             Self::Rebase(onto) => (&["rebase"], vec![onto]),
             Self::CherryPick(commit) => (&["cherry-pick"], vec![commit]),
             Self::Revert(commit) => (&["revert", "--no-edit"], vec![commit]),
+            Self::Continue(command) => (&[], vec![command, "--continue"]),
+            Self::Skip(command) => (&[], vec![command, "--skip"]),
+            Self::Abort(command) => (&[], vec![command, "--abort"]),
             Self::Reset { to, mode } => (&["reset", "-q"], vec![mode.flag(), to]),
             Self::Tag { name, at } => (&["tag"], vec![name, at]),
             Self::DeleteTag(name) => (&["tag", "-d"], vec![name]),

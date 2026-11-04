@@ -27,11 +27,14 @@ drive it the way a user does, and keeps every benchmark as fast as before.
       has, force push (with lease, for a branch that went its own way), dropping a stash
 - [x] Undo and redo through the reflog: commits, amends, checkouts, merges, pulls, rebases,
       cherry-picks, reverts and resets, also those made on the command line, several steps deep
+- [x] Conflicts, part 1: a bar while a merge, rebase, cherry-pick or revert is stopped, with the
+      number of conflicted files; continue, skip or abort; per file take ours or theirs (also when
+      that side deleted it) or mark it resolved
 
 ## Next
 
-1. **Conflicts**: list conflicted files, resolve them in a three-way view (ours, theirs, result),
-   mark them resolved, and continue or abort a merge, rebase or cherry-pick.
+1. **Conflicts, part 2**: resolve a conflicted file in a three-way view (ours, theirs, result),
+   conflict by conflict.
 2. **Interactive rebase**: reorder, squash, fix up, reword and drop commits, by dragging in the
    graph.
 3. **Credentials**: ask for a username, password or passphrase when git needs one.

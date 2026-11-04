@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{Key, Role};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use gitcraft_core::git::{Git, Op};
 use tempfile::TempDir;
 
@@ -568,4 +568,73 @@ fn deleting_a_stash_asks_first() {
     harness.get_by_label("Delete").click();
     settle(&mut harness);
     assert_eq!(git.run(&["stash", "list"]).unwrap(), "");
+}
+
+/// Makes `main` and `topic` each change file.txt their own way, with `main` checked out.
+fn clash(git: &Git) {
+    git.run(&["branch", "topic"]).unwrap();
+    commit(git, "On main");
+    git.apply(&Op::Checkout("topic".into())).unwrap();
+    commit(git, "On topic");
+    git.apply(&Op::Checkout("main".into())).unwrap();
+}
+
+#[test]
+fn take_their_side_of_a_conflict_and_continue_the_merge() {
+    let (_dir, git) = repo();
+    clash(&git);
+    assert!(git.apply(&Op::Merge("topic".into())).is_err());
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Merge in progress");
+    harness.get_by_label("1 conflicted file");
+    assert!(harness.get_by_label("Continue").accesskit_node().is_disabled());
+    assert!(harness.query_by_label("Skip").is_none(), "a merge has no commit to skip");
+
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    harness.get_by_label("Take theirs for file.txt").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "file.txt"), "On topic");
+    harness.get_by_label("Continue").click();
+    settle(&mut harness);
+    assert_eq!(git.run(&["log", "-1", "--format=%s"]).unwrap(), "Merge branch 'topic'\n");
+    assert!(harness.query_by_label("Merge in progress").is_none());
+}
+
+#[test]
+fn mark_a_conflict_resolved_and_continue_the_rebase() {
+    let (_dir, git) = repo();
+    clash(&git);
+    git.apply(&Op::Checkout("topic".into())).unwrap();
+    assert!(git.apply(&Op::Rebase("main".into())).is_err());
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Rebase in progress");
+    harness.get_by_label("Skip");
+
+    fs::write(git.dir().join("file.txt"), "On both").unwrap();
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    harness.get_by_label("Mark resolved").click();
+    settle(&mut harness);
+    harness.get_by_label("Continue").click();
+    settle(&mut harness);
+    assert_eq!(log(&git), "On topic\nOn main\nFirst commit\n");
+    assert_eq!(read(&git, "file.txt"), "On both");
+    assert!(harness.query_by_label("Rebase in progress").is_none());
+}
+
+#[test]
+fn abort_a_cherry_pick_that_stopped_at_a_conflict() {
+    let (_dir, git) = repo();
+    clash(&git);
+    assert!(git.apply(&Op::CherryPick("topic".into())).is_err());
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Cherry-pick in progress");
+    assert_eq!(harness.get_all_by_label("On topic").count(), 2, "the commit in the graph, and above it");
+
+    harness.get_by_label("Abort").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "file.txt"), "On main");
+    assert!(harness.query_by_label("Cherry-pick in progress").is_none());
+    assert!(harness.query_by_label("Uncommitted changes").is_none());
 }

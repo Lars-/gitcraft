@@ -41,7 +41,7 @@ pub fn change(change: Change) -> (&'static str, Color32) {
         Change::Renamed | Change::Copied => ("R", LANES[0]),
         Change::TypeChanged => ("T", LANES[1]),
         Change::Untracked => ("U", LANES[7]),
-        Change::Conflicted => ("C", LANES[9]),
+        Change::Conflicted { .. } => ("C", LANES[9]),
     }
 }
 

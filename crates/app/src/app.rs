@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use gitcraft_core::diff::{self, FileDiff, Source};
 use gitcraft_core::git::Op;
-use gitcraft_core::repo::{Commit, History, Repo};
+use gitcraft_core::repo::{Commit, History, Repo, Underway};
 use gitcraft_core::status::{self, FileChange, Status};
 use gitcraft_core::undo::{self, Undo};
 use gitcraft_core::watch::Watch;
@@ -107,6 +107,8 @@ pub struct Snapshot {
     pub stashes: Vec<String>,
     /// What undo and redo would do.
     pub undo: Undo,
+    /// What stopped half way, if anything.
+    pub underway: Option<Underway>,
 }
 
 impl Snapshot {
@@ -116,6 +118,7 @@ impl Snapshot {
             history: repo.history()?,
             undo: undo::read(repo, &status)?,
             stashes: status::stashes(&repo.git)?,
+            underway: repo.underway(),
             status,
         })
     }

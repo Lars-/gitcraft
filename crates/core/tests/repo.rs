@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use gitcraft_core::diff::{self, FileDiff, LineKind, Source};
 use gitcraft_core::git::{self, Git, Op, ResetMode};
-use gitcraft_core::repo::{Label, RefKind, Repo};
+use gitcraft_core::repo::{Label, RefKind, Repo, Underway};
 use gitcraft_core::status::{self, Change, Status};
 use gitcraft_core::undo::{self, Move, Undo};
 use gitcraft_core::watch::Watch;
@@ -379,6 +379,88 @@ fn a_rebase_is_one_action_and_undo_keeps_uncommitted_work() {
     assert_eq!(undo(&git), Undo::default());
     git.run(&["rebase", "--abort"]).unwrap();
     assert_eq!(what(undo(&git).last.as_ref()), Some("commit: Clash"));
+}
+
+/// `main` and `topic` both change `a.txt`, and `main` deletes `b.txt`, which `topic` changes.
+/// Returns the tips of `main`, which is checked out, and `topic`.
+fn clashing(git: &Git) -> (String, String) {
+    write(git, "b.txt", "b\n");
+    git.apply(&Op::Stage(vec!["b.txt".into()])).unwrap();
+    let root = commit(git, "a.txt", "a\n", "Root");
+    git.apply(&Op::Branch { name: "topic".into(), at: root }).unwrap();
+    write(git, "b.txt", "topic\n");
+    git.apply(&Op::Stage(vec!["b.txt".into()])).unwrap();
+    let topic = commit(git, "a.txt", "topic\n", "Topic");
+    git.apply(&Op::Checkout("main".into())).unwrap();
+    git.apply(&Op::Remove(vec!["b.txt".into()])).unwrap();
+    (commit(git, "a.txt", "main\n", "Main"), topic)
+}
+
+fn underway(git: &Git) -> Option<Underway> {
+    Repo::open(git.dir()).unwrap().underway()
+}
+
+fn conflicted(ours: bool, theirs: bool) -> Change {
+    Change::Conflicted { ours, theirs }
+}
+
+fn read(git: &Git, path: &str) -> String {
+    fs::read_to_string(git.dir().join(path)).unwrap()
+}
+
+#[test]
+fn resolve_conflicts_and_continue_a_merge() {
+    let (_dir, git) = repo();
+    clashing(&git);
+    assert!(git.apply(&Op::Merge("topic".into())).is_err());
+    let merge = underway(&git).unwrap();
+    assert_eq!((merge.command, merge.theirs, merge.message.as_str()), ("merge", "MERGE_HEAD", "Merge branch 'topic'"));
+    assert_eq!(
+        status(&git),
+        [("a.txt".into(), None, Some(conflicted(true, true))), ("b.txt".into(), None, Some(conflicted(false, true)))]
+    );
+    assert_eq!(undo(&git), Undo::default(), "nothing to undo half way");
+
+    assert!(git.apply(&Op::Continue("merge")).is_err(), "not before every conflict is resolved");
+    git.apply(&Op::Restore { from: merge.theirs.into(), paths: vec!["a.txt".into()] }).unwrap();
+    git.apply(&Op::Remove(vec!["b.txt".into()])).unwrap();
+    assert_eq!(status(&git), [("a.txt".into(), Some(Change::Modified), None)]);
+    git.apply(&Op::Continue("merge")).unwrap();
+    assert_eq!(underway(&git), None);
+    assert_eq!(git.run(&["rev-list", "--parents", "-n1", "HEAD"]).unwrap().split(' ').count(), 3, "a merge commit");
+    assert_eq!(read(&git, "a.txt"), "topic\n");
+    assert!(!git.dir().join("b.txt").exists());
+}
+
+#[test]
+fn skip_abort_and_continue_a_rebase_a_cherry_pick_and_a_revert() {
+    let (_dir, git) = repo();
+    let (main, topic) = clashing(&git);
+    assert!(git.apply(&Op::Rebase("topic".into())).is_err());
+    let rebase = underway(&git).unwrap();
+    assert_eq!((rebase.command, rebase.theirs, rebase.message.as_str()), ("rebase", "REBASE_HEAD", "Main"));
+    // Rebasing turns the sides around: the commit coming in is the one that deleted the file.
+    assert_eq!(status(&git)[1], ("b.txt".into(), None, Some(conflicted(true, false))));
+    git.apply(&Op::Skip("rebase")).unwrap();
+    assert_eq!((underway(&git), branch(&git), head(&git)), (None, "main".into(), topic.clone()));
+    git.apply(&Op::Reset { to: main.clone(), mode: ResetMode::Hard }).unwrap();
+
+    assert!(git.apply(&Op::CherryPick("topic".into())).is_err());
+    assert_eq!(underway(&git).map(|u| (u.command, u.theirs)), Some(("cherry-pick", "CHERRY_PICK_HEAD")));
+    git.apply(&Op::Abort("cherry-pick")).unwrap();
+    assert_eq!((underway(&git), head(&git)), (None, main));
+    assert!(Status::read(&git).unwrap().is_clean());
+
+    // Reverting "Main" brings back what came before it.
+    commit(&git, "a.txt", "later\n", "Later");
+    assert!(git.apply(&Op::Revert("HEAD~1".into())).is_err());
+    let revert = underway(&git).unwrap();
+    assert_eq!((revert.command, revert.message.as_str()), ("revert", "Revert \"Main\""));
+    git.apply(&Op::Restore { from: revert.theirs.into(), paths: vec!["a.txt".into()] }).unwrap();
+    assert_eq!(read(&git, "a.txt"), "a\n");
+    git.apply(&Op::Continue("revert")).unwrap();
+    assert_eq!(underway(&git), None);
+    assert_eq!(git.run(&["log", "-1", "--format=%s"]).unwrap(), "Revert \"Main\"\n");
 }
 
 #[test]
