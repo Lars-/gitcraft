@@ -31,6 +31,9 @@ impl Git {
 
     /// Carries out `op`.
     pub fn apply(&self, op: &Op) -> Result<String> {
+        if let Op::Save { path, text } = op {
+            std::fs::write(self.dir.join(path), text).map_err(|source| Error::File { path: path.clone(), source })?;
+        }
         let args = op.args();
         let mut command = self.command(&args);
         if let Op::Undo { mark, .. } = op {
@@ -192,6 +195,13 @@ pub enum Op {
         /// The files.
         paths: Vec<String>,
     },
+    /// Write a file and add it to the index, which marks its conflicts resolved.
+    Save {
+        /// The file.
+        path: String,
+        /// What it holds from now on.
+        text: String,
+    },
     /// Delete tracked files from the index and the working tree.
     Remove(Vec<String>),
     /// Apply a patch to the index, or take it out with `reverse`.
@@ -300,6 +310,7 @@ impl Op {
             Self::Restore { from, paths } => {
                 (&["restore", "--staged", "--worktree", "--source"], [vec![from.as_str(), "--"], strs(paths)].concat())
             }
+            Self::Save { path, .. } => (&["add", "--"], vec![path]),
             Self::Remove(paths) => (&["rm", "-q", "--"], strs(paths)),
             Self::ApplyToIndex { reverse, .. } => {
                 (&["apply", "--cached", "--recount"], [flag(*reverse, "--reverse"), vec!["-"]].concat())

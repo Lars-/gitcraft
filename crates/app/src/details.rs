@@ -72,6 +72,7 @@ fn resolve(ui: &mut Ui, path: &str, sides: Option<[(&str, &str, bool); 2]>, acti
 fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     let underway = ws.snapshot.underway.as_ref();
     let open = ws.open_file.as_ref().map(|f| &f.source);
+    let merging = ws.merge.as_ref().map(|m| m.path.as_str());
     let entries = &ws.snapshot.status.entries;
     let unstaged: Vec<_> = entries.iter().filter_map(|e| Some((e.unstaged?, e.path.as_str()))).collect();
     let staged: Vec<_> = entries.iter().filter_map(|e| Some((e.staged?, e.path.as_str()))).collect();
@@ -92,7 +93,8 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                 Source::Unstaged(path.into())
             };
             let conflicted = matches!(change, Change::Conflicted { .. });
-            let clicked = file(ui, change, path, open == Some(&source), |ui| {
+            let shown = if conflicted { merging == Some(path) } else { open == Some(&source) };
+            let clicked = file(ui, change, path, shown, |ui| {
                 // A conflicted file has its buttons on a line of their own, below.
                 if conflicted {
                     return;
@@ -113,9 +115,13 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                     resolve(ui, path, sides, actions);
                 });
             }
-            // `git diff` shows a conflict in a form of its own, which has no view yet.
-            if clicked && !conflicted {
-                actions.push(Action::Open(source));
+            if clicked {
+                actions.push(match change {
+                    Change::Conflicted { ours: true, theirs: true } => Action::Resolve(path.into()),
+                    // A file one side deleted has no lines to line up.
+                    Change::Conflicted { .. } => continue,
+                    _ => Action::Open(source),
+                });
             }
         }
     });

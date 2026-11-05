@@ -18,6 +18,17 @@ pub enum Error {
     /// `git` printed something we do not understand.
     #[error("unexpected output from git: {0}")]
     Parse(String),
+    /// A file in the working tree could not be read or written.
+    #[error("{path}: {source}")]
+    File {
+        /// The file.
+        path: String,
+        /// What went wrong.
+        source: std::io::Error,
+    },
+    /// A conflicted file has no conflict markers to resolve one by one.
+    #[error("{0} has no conflict markers to resolve: mark it resolved as it is, or take a side")]
+    NoConflicts(String),
     /// Watching the repository for changes failed.
     #[error("could not watch for changes: {0}")]
     Watch(Box<dyn std::error::Error + Send + Sync>),

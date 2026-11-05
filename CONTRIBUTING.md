@@ -52,11 +52,13 @@ There are two crates.
 - `graph.rs` orders commits (`git log --date-order`) and lays out the lanes. It keeps a snapshot of
   the lanes every 256 rows, so it only ever builds the rows on screen.
 - `git.rs` runs the user's own `git` for everything else. Every change to a repository is one
-  variant of `Op`, which maps to the arguments for `git`; cloning and creating a repository are
-  the two functions next to it. Using `git` itself keeps hooks, credentials, signing and config
+  variant of `Op`, which maps to the arguments for `git` (saving a resolved file writes it
+  first); cloning and creating a repository are the two functions next to it. Using `git` itself keeps hooks, credentials, signing and config
   working without code of our own.
 - `status.rs` and `diff.rs` parse `git status --porcelain=v2` and unified diffs, and build the
   patches for staging single lines.
+- `conflict.rs` splits a conflicted file at the markers git wrote into it, and puts it back
+  together with ours, theirs or both for each conflict.
 - `watch.rs` watches the working tree and the refs, and says when something changed that git
   does not ignore. Reading should not write (`git status` runs without optional locks): a write
   wakes the watcher again.
@@ -74,8 +76,8 @@ Its tests run against real repositories made with `git` in a temporary folder
   background thread and is followed by a reload, so the window never waits; what the user asks for
   in the meantime runs next. The tab on screen also reloads by itself when its watcher saw a
   change.
-- `start.rs` (open, clone and create), `ui.rs` (tabs and toolbar), `graph.rs`, `sidebar.rs`, `details.rs`
-  and `diff.rs` draw the views, and `theme.rs` has the colours.
+- `start.rs` (open, clone and create), `ui.rs` (tabs and toolbar), `graph.rs`, `sidebar.rs`, `details.rs`,
+  `diff.rs` and `merge.rs` (a conflicted file) draw the views, and `theme.rs` has the colours.
 
 The app's tests (`crates/app/src/tests.rs`) drive the whole window the way a user does, through
 the accessibility tree with [egui_kittest](https://crates.io/crates/egui_kittest). That also keeps

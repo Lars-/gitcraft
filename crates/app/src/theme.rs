@@ -22,6 +22,8 @@ const LANES: [Color32; 10] = [
 pub const ADDED: Color32 = Color32::from_rgb(0x1d, 0x3b, 0x2c);
 /// The background of a removed line.
 pub const REMOVED: Color32 = Color32::from_rgb(0x45, 0x22, 0x27);
+/// The background of a conflict without a pick.
+pub const CONFLICT: Color32 = Color32::from_rgb(0x4a, 0x38, 0x1c);
 /// The background of a line picked for staging.
 pub const PICKED: Color32 = Color32::from_rgb(0x2b, 0x4a, 0x7a);
 /// Text for errors.

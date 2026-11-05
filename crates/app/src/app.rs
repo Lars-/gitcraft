@@ -12,10 +12,11 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 use eframe::egui;
+use gitcraft_core::conflict::{Conflicts, Pick};
 use gitcraft_core::diff::{self, FileDiff, Source};
 use gitcraft_core::git::Op;
 use gitcraft_core::repo::{Commit, History, Repo, Underway};
-use gitcraft_core::status::{self, FileChange, Status};
+use gitcraft_core::status::{self, Change, FileChange, Status};
 use gitcraft_core::undo::{self, Undo};
 use gitcraft_core::watch::Watch;
 use gitcraft_core::{ObjectId, Result};
@@ -37,6 +38,12 @@ pub enum Action {
     CloseFile,
     /// Pick or unpick a line of the open diff for staging.
     ToggleLine(usize, usize),
+    /// Resolve a conflicted file in the centre, conflict by conflict.
+    Resolve(String),
+    /// Keep a side of the conflict on screen, and go on to the next conflict without a pick.
+    Pick(Pick),
+    /// Show a conflict of the file being resolved.
+    GoTo(usize),
     /// Ask for a name first.
     Prompt(Prompt),
     /// Ask whether to go ahead first.
@@ -135,6 +142,40 @@ pub struct OpenFile {
     pub lines: BTreeSet<(usize, usize)>,
 }
 
+/// A conflicted file being resolved in the centre, conflict by conflict.
+#[derive(Debug)]
+pub struct Merge {
+    /// The file.
+    pub path: String,
+    /// Its conflicts, as git marked them.
+    pub conflicts: Conflicts,
+    /// What to keep of each conflict.
+    pub picks: Vec<Option<Pick>>,
+    /// The conflict on screen.
+    pub at: usize,
+    /// Whether to scroll to it.
+    pub scroll: bool,
+}
+
+impl Merge {
+    fn new(path: String, conflicts: Conflicts) -> Self {
+        Self { path, picks: vec![None; conflicts.count()], conflicts, at: 0, scroll: true }
+    }
+
+    fn go_to(&mut self, at: usize) {
+        (self.at, self.scroll) = (at, true);
+    }
+
+    /// Keeps `pick` of the conflict on screen, and goes on to the next conflict without a pick.
+    fn pick(&mut self, pick: Pick) {
+        self.picks[self.at] = Some(pick);
+        let count = self.picks.len();
+        if let Some(next) = (1..count).map(|step| (self.at + step) % count).find(|&i| self.picks[i].is_none()) {
+            self.go_to(next);
+        }
+    }
+}
+
 /// Commits read so far, so scrolling back costs nothing.
 #[derive(Debug, Default)]
 pub struct Commits(HashMap<ObjectId, Commit>);
@@ -177,6 +218,8 @@ pub struct Workspace {
     pub files: Option<(ObjectId, Vec<FileChange>)>,
     /// The diff in the centre, if any.
     pub open_file: Option<OpenFile>,
+    /// The conflicted file in the centre, if any.
+    pub merge: Option<Merge>,
     /// The commit summary being written.
     pub summary: String,
     /// The rest of the commit message.
@@ -214,6 +257,7 @@ impl Workspace {
             selection: None,
             files: None,
             open_file: None,
+            merge: None,
             summary: String::new(),
             description: String::new(),
             amend: false,
@@ -269,10 +313,19 @@ impl Workspace {
                 self.scroll_to = self.selected_row();
             }
             Action::Open(source) => match diff::read(&self.repo.git, &source) {
-                Ok(diff) => self.open_file = Some(OpenFile { source, diff, lines: BTreeSet::new() }),
+                Ok(diff) => {
+                    self.merge = None;
+                    self.open_file = Some(OpenFile { source, diff, lines: BTreeSet::new() });
+                }
                 Err(error) => self.error = Some(error.to_string()),
             },
-            Action::CloseFile => self.open_file = None,
+            Action::Resolve(path) => match Conflicts::read(&self.repo.git, &path) {
+                Ok(conflicts) => (self.merge, self.open_file) = (Some(Merge::new(path, conflicts)), None),
+                Err(error) => self.error = Some(error.to_string()),
+            },
+            Action::Pick(pick) => self.merge.iter_mut().for_each(|merge| merge.pick(pick)),
+            Action::GoTo(at) => self.merge.iter_mut().for_each(|merge| merge.go_to(at)),
+            Action::CloseFile => (self.open_file, self.merge) = (None, None),
             Action::ToggleLine(hunk, line) => {
                 if let Some(file) = &mut self.open_file
                     && !file.lines.remove(&(hunk, line))
@@ -387,6 +440,18 @@ impl Workspace {
             match head {
                 Some(id) => self.select(Selection::Commit(id)),
                 None => self.selection = None,
+            }
+        }
+        if let Some(merge) = &mut self.merge {
+            // A file without conflicts left closes; one changed outside starts again.
+            let entries = &self.snapshot.status.entries;
+            let conflicted =
+                entries.iter().any(|e| e.path == merge.path && matches!(e.unstaged, Some(Change::Conflicted { .. })));
+            match conflicted.then(|| Conflicts::read(&self.repo.git, &merge.path)) {
+                None => self.merge = None,
+                Some(Ok(conflicts)) if conflicts == merge.conflicts => {}
+                Some(Ok(conflicts)) => *merge = Merge::new(std::mem::take(&mut merge.path), conflicts),
+                Some(Err(error)) => (self.merge, self.error) = (None, Some(error.to_string())),
             }
         }
         if let Some(file) = &mut self.open_file {
