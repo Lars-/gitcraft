@@ -638,3 +638,74 @@ fn abort_a_cherry_pick_that_stopped_at_a_conflict() {
     assert!(harness.query_by_label("Cherry-pick in progress").is_none());
     assert!(harness.query_by_label("Uncommitted changes").is_none());
 }
+
+#[test]
+fn resolve_a_file_conflict_by_conflict() {
+    let (_dir, git) = repo();
+    let lines = |second: &str, last: &str| format!("1\n{second}\n3\n4\n5\n6\n7\n{last}\n");
+    let save = |text: String, message: &str| {
+        fs::write(git.dir().join("file.txt"), text).unwrap();
+        git.apply(&Op::Stage(vec!["file.txt".into()])).unwrap();
+        git.apply(&Op::Commit { message: message.into(), amend: false }).unwrap();
+    };
+    save(lines("2", "8"), "Eight lines");
+    git.run(&["branch", "topic"]).unwrap();
+    save(lines("main", "main"), "On main");
+    git.apply(&Op::Checkout("topic".into())).unwrap();
+    save(lines("topic", "topic"), "On topic");
+    git.apply(&Op::Checkout("main".into())).unwrap();
+    assert!(git.apply(&Op::Merge("topic".into())).is_err());
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    harness.get_by_label("file.txt").click();
+    settle(&mut harness);
+    harness.get_by_label("Conflict 1 of 2");
+    harness.get_by_label("Ours: HEAD");
+    harness.get_by_label("Theirs: topic");
+    assert!(harness.get_by_label("Save and mark resolved").accesskit_node().is_disabled());
+
+    harness.get_by_label("Take theirs").click();
+    settle(&mut harness);
+    harness.get_by_label("Conflict 2 of 2");
+    harness.get_by_label("Conflict 1").click();
+    settle(&mut harness);
+    harness.get_by_label("Take ours").click();
+    settle(&mut harness);
+    harness.get_by_label("Conflict 2 of 2");
+    assert!(harness.get_by_label("Save and mark resolved").accesskit_node().is_disabled());
+    harness.get_by_label("Take both").click();
+    settle(&mut harness);
+    harness.get_by_label("Save and mark resolved").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "file.txt"), lines("main", "main\ntopic"));
+    assert!(harness.state().workspace().unwrap().merge.is_none(), "a resolved file closes");
+    harness.get_by_label("Continue").click();
+    settle(&mut harness);
+    assert_eq!(git.run(&["log", "-1", "--format=%s"]).unwrap(), "Merge branch 'topic'\n");
+}
+
+#[test]
+fn a_conflicted_file_changed_outside_starts_again() {
+    let (_dir, git) = repo();
+    clash(&git);
+    assert!(git.apply(&Op::Merge("topic".into())).is_err());
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    harness.get_by_label("file.txt").click();
+    settle(&mut harness);
+    harness.get_by_label("Take ours").click();
+    settle(&mut harness);
+    let saveable =
+        |harness: &Harness<'_, App>| !harness.get_by_label("Save and mark resolved").accesskit_node().is_disabled();
+    assert!(saveable(&harness));
+
+    fs::write(git.dir().join("file.txt"), "<<<<<<< HEAD\nEdited\n=======\nOn topic\n>>>>>>> topic\n").unwrap();
+    wait_until(&mut harness, "the edited conflict without its pick", |harness| !saveable(harness));
+    fs::write(git.dir().join("file.txt"), "On both").unwrap();
+    wait_until(&mut harness, "the explanation", |harness| {
+        harness.query_by_label_contains("file.txt has no conflict markers").is_some()
+    });
+    assert!(harness.state().workspace().unwrap().merge.is_none());
+}

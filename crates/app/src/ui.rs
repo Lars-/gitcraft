@@ -9,7 +9,7 @@ use gitcraft_core::status::Change;
 
 use crate::app::{Action, Confirm, Selection, Workspace};
 use crate::start::Start;
-use crate::{details, diff, graph, sidebar, theme};
+use crate::{details, diff, graph, merge, sidebar, theme};
 
 const RECENT: usize = 10;
 
@@ -193,9 +193,14 @@ fn workspace(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     }
     egui::Panel::left("sidebar").resizable(true).default_size(220.0).show(ui, |ui| sidebar::show(ui, ws, actions));
     egui::Panel::right("details").resizable(true).default_size(360.0).show(ui, |ui| details::show(ui, ws, actions));
-    egui::CentralPanel::default().show(ui, |ui| match &ws.open_file {
-        Some(file) => diff::show(ui, file, actions),
-        None => graph::show(ui, ws, actions),
+    egui::CentralPanel::default().show(ui, |ui| {
+        if let Some(merge) = &mut ws.merge {
+            merge::show(ui, merge, actions);
+        } else if let Some(file) = &ws.open_file {
+            diff::show(ui, file, actions);
+        } else {
+            graph::show(ui, ws, actions);
+        }
     });
 }
 

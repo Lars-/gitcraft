@@ -5,6 +5,7 @@
 //! `git`, so their config, hooks, credentials and signing apply unchanged.
 #![warn(missing_docs)]
 
+pub mod conflict;
 pub mod diff;
 mod error;
 pub mod git;

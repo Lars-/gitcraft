@@ -54,8 +54,10 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
   own way, after an amend or a rebase, is force pushed with a lease, so nobody else's work is lost.
 - **Stashes**: stash, apply, pop and drop.
 - **Conflicts**: when a merge, rebase, cherry-pick or revert stops at a conflict, a bar says so and
-  counts the conflicted files. Take a whole file from your side or theirs (also when one side
-  deleted it), or edit it and mark it resolved, then continue, skip the commit, or abort.
+  counts the conflicted files. Open a conflicted file to go through it conflict by conflict, with
+  your side and theirs next to each other and the result below: take ours, theirs or both, and
+  save. Or take a whole file from one side (also when one side deleted it), or edit it and mark
+  it resolved; then continue, skip the commit, or abort.
 - **Undo and redo**: take back a commit, an amend, a checkout, a merge, a pull, a rebase, a
   cherry-pick, a revert or a reset, one step at a time, and do it again. It reads git's reflog, so
   it works for what you did on the command line too. Undoing a commit puts its changes back in the

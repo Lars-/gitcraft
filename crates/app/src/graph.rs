@@ -17,7 +17,7 @@ const AUTHOR: f32 = 140.0;
 const DATE: f32 = 100.0;
 
 /// A count as a distance in points.
-fn points(n: usize) -> f32 {
+pub fn points(n: usize) -> f32 {
     f32::from(u16::try_from(n).unwrap_or(u16::MAX))
 }
 

@@ -4,6 +4,7 @@ use std::fs;
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
+use gitcraft_core::conflict::{Conflicts, Pick};
 use gitcraft_core::diff::{self, FileDiff, LineKind, Source};
 use gitcraft_core::git::{self, Git, Op, ResetMode};
 use gitcraft_core::repo::{Label, RefKind, Repo, Underway};
@@ -430,6 +431,31 @@ fn resolve_conflicts_and_continue_a_merge() {
     assert_eq!(git.run(&["rev-list", "--parents", "-n1", "HEAD"]).unwrap().split(' ').count(), 3, "a merge commit");
     assert_eq!(read(&git, "a.txt"), "topic\n");
     assert!(!git.dir().join("b.txt").exists());
+}
+
+#[test]
+fn resolve_a_file_conflict_by_conflict() {
+    let (_dir, git) = repo();
+    let lines = |second: &str, last: &str| format!("1\n{second}\n3\n4\n5\n6\n7\n{last}\n");
+    let root = commit(&git, "a.txt", &lines("2", "8"), "Root");
+    git.apply(&Op::Branch { name: "topic".into(), at: root }).unwrap();
+    commit(&git, "a.txt", &lines("topic", "topic"), "Topic");
+    git.apply(&Op::Checkout("main".into())).unwrap();
+    commit(&git, "a.txt", &lines("main", "main"), "Main");
+    assert!(git.apply(&Op::Merge("topic".into())).is_err());
+
+    let file = Conflicts::read(&git, "a.txt").unwrap();
+    assert_eq!(file.names, ["HEAD".to_owned(), "topic".to_owned()]);
+    assert_eq!(file.count(), 2);
+    let text = file.resolve(&[Some(Pick::Theirs), Some(Pick::Both)]).unwrap();
+    git.apply(&Op::Save { path: "a.txt".into(), text }).unwrap();
+    assert_eq!(read(&git, "a.txt"), lines("topic", "main\ntopic"));
+    assert_eq!(status(&git), [("a.txt".into(), Some(Change::Modified), None)]);
+    git.apply(&Op::Continue("merge")).unwrap();
+    assert_eq!(underway(&git), None);
+
+    assert!(matches!(Conflicts::read(&git, "a.txt"), Err(Error::NoConflicts(path)) if path == "a.txt"));
+    assert!(matches!(Conflicts::read(&git, "gone.txt"), Err(Error::File { .. })));
 }
 
 #[test]
