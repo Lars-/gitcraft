@@ -709,3 +709,71 @@ fn a_conflicted_file_changed_outside_starts_again() {
     });
     assert!(harness.state().workspace().unwrap().merge.is_none());
 }
+
+/// Commits a file of its own for each name, so that the commits go in any order.
+fn add_files(git: &Git, names: &[&str]) {
+    for name in names {
+        fs::write(git.dir().join(name), name).unwrap();
+        git.apply(&Op::Stage(vec![(*name).into()])).unwrap();
+        git.apply(&Op::Commit { message: format!("Add {name}"), amend: false }).unwrap();
+    }
+}
+
+#[test]
+fn reorder_squash_and_drop_commits_in_an_interactive_rebase() {
+    let (_dir, git) = repo();
+    add_files(&git, &["one", "two", "three"]);
+    let mut harness = app(Some(git.dir()));
+    menu(&mut harness, "First commit", &["Interactive rebase onto this commit…"]);
+    harness.get_by_label(&format!("Interactive rebase onto {}", &rev(&git, "HEAD~3")[..7]));
+    assert!(harness.get_by_label("Move Add three up").accesskit_node().is_disabled());
+
+    harness.get_by_label("Squash Add one").click();
+    settle(&mut harness);
+    let start = |harness: &Harness<'_, App>| !harness.get_by_label("Start rebase").accesskit_node().is_disabled();
+    assert!(!start(&harness), "the oldest commit has nothing to meld into");
+    harness.get_by_label("Drop Add one").click();
+    settle(&mut harness);
+    harness.get_by_label("Squash Add two").click();
+    settle(&mut harness);
+    assert!(!start(&harness), "nor has the oldest one it keeps");
+
+    harness.get_by_label("Pick Add two").click();
+    harness.get_by_label("Pick Add one").click();
+    harness.get_by_label("Move Add one up").click();
+    settle(&mut harness);
+    harness.get_by_label("Move Add one up").click();
+    settle(&mut harness);
+    // Newest first: one, three, two.
+    harness.get_by_label("Squash Add one").click();
+    harness.get_by_label("Drop Add two").click();
+    settle(&mut harness);
+    assert!(start(&harness));
+    harness.get_by_label("Start rebase").click();
+    settle(&mut harness);
+    assert_eq!(git.run(&["log", "--format=%B|"]).unwrap(), "Add three\n\nAdd one\n|\nFirst commit\n|\n");
+    assert_eq!(git.run(&["ls-files"]).unwrap(), "file.txt\none\nthree\n");
+    assert!(harness.state().workspace().unwrap().plan.is_none());
+    assert_eq!(harness.state().workspace().unwrap().error, None);
+}
+
+#[test]
+fn a_rebase_plan_starts_again_when_its_commits_change_outside() {
+    let (_dir, git) = repo();
+    add_files(&git, &["one"]);
+    let mut harness = app(Some(git.dir()));
+    menu(&mut harness, "First commit", &["Interactive rebase onto this commit…"]);
+    harness.get_by_label("Drop Add one").click();
+    settle(&mut harness);
+
+    add_files(&git, &["two"]);
+    wait_until(&mut harness, "the new commit", |harness| harness.query_by_label("Drop Add two").is_some());
+    harness.get_by_label("2 commits");
+    harness.get_by_label("Start rebase").click();
+    settle(&mut harness);
+    assert_eq!(log(&git), "Add two\nAdd one\nFirst commit\n", "nothing was dropped");
+
+    menu(&mut harness, "Add two", &["Interactive rebase onto this commit…"]);
+    assert!(harness.state().workspace().unwrap().plan.is_none());
+    harness.get_by_label_contains("Nothing to rebase onto");
+}
