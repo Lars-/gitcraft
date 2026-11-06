@@ -1,0 +1,30 @@
+name: Diagnose
+
+on: pull_request
+
+jobs:
+  windows-hang:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p gitcraft --locked --no-run
+      - shell: pwsh
+        run: |
+          git --version
+          git config --show-origin --list --system
+          for ($i = 1; $i -le 10; $i++) {
+            $p = Start-Process cargo -ArgumentList 'test','-p','gitcraft','--locked' -NoNewWindow -PassThru -RedirectStandardOutput "out$i.txt" -RedirectStandardError "err$i.txt"
+            $null = $p.Handle
+            if (-not $p.WaitForExit(150000)) {
+              Write-Host "RUN $i HUNG"
+              Get-Content "out$i.txt" | Select-Object -Last 8
+              Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'git|sh|bash|gitcraft|cargo|conhost' } |
+                Select-Object ProcessId,ParentProcessId,CreationDate,Name,CommandLine | Format-List | Out-String -Width 4096
+              taskkill /T /F /PID $p.Id
+              exit 1
+            }
+            Write-Host "run $i exit $($p.ExitCode)"
+          }
