@@ -77,7 +77,8 @@ Its tests run against real repositories made with `git` in a temporary folder
   in the meantime runs next. The tab on screen also reloads by itself when its watcher saw a
   change.
 - `start.rs` (open, clone and create), `ui.rs` (tabs and toolbar), `graph.rs`, `sidebar.rs`, `details.rs`,
-  `diff.rs` and `merge.rs` (a conflicted file) draw the views, and `theme.rs` has the colours.
+  `diff.rs`, `merge.rs` (a conflicted file) and `rebase.rs` (an interactive rebase) draw the
+  views, and `theme.rs` has the colours.
 
 The app's tests (`crates/app/src/tests.rs`) drive the whole window the way a user does, through
 the accessibility tree with [egui_kittest](https://crates.io/crates/egui_kittest). That also keeps

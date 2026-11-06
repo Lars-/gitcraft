@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use gitcraft_core::conflict::{Conflicts, Pick};
 use gitcraft_core::diff::{self, FileDiff, Source};
-use gitcraft_core::git::Op;
+use gitcraft_core::git::{Op, Step};
 use gitcraft_core::repo::{Commit, History, Repo, Underway};
 use gitcraft_core::status::{self, Change, FileChange, Status};
 use gitcraft_core::undo::{self, Undo};
@@ -44,6 +44,12 @@ pub enum Action {
     Pick(Pick),
     /// Show a conflict of the file being resolved.
     GoTo(usize),
+    /// Put together an interactive rebase onto a commit, in the centre.
+    Plan(String),
+    /// Set what the rebase does with a commit of the plan.
+    Step(usize, Step),
+    /// Move a commit of the plan to another place.
+    Shift(usize, usize),
     /// Ask for a name first.
     Prompt(Prompt),
     /// Ask whether to go ahead first.
@@ -176,6 +182,31 @@ impl Merge {
     }
 }
 
+/// An interactive rebase being put together in the centre.
+#[derive(Debug)]
+pub struct Plan {
+    /// The commit to rebase onto.
+    pub onto: String,
+    /// The commits it takes along, as git listed them.
+    pub listed: Vec<ObjectId>,
+    /// Each commit with what to do with it, in the new order, newest first like the graph.
+    pub steps: Vec<(Step, ObjectId)>,
+}
+
+impl Plan {
+    fn new(onto: String, listed: Vec<ObjectId>) -> Self {
+        Self { steps: listed.iter().rev().map(|&id| (Step::Pick, id)).collect(), onto, listed }
+    }
+
+    /// The rebase, unless the oldest commit it keeps would have nothing to meld into.
+    pub fn op(&self) -> Option<Op> {
+        let todo: Vec<_> = self.steps.iter().rev().map(|&(step, id)| (step, id.to_string())).collect();
+        let first = todo.iter().map(|(step, _)| *step).find(|&step| step != Step::Drop);
+        let melds = matches!(first, Some(Step::Squash | Step::Fixup));
+        (!melds).then(|| Op::RebaseInteractive { onto: self.onto.clone(), todo })
+    }
+}
+
 /// Commits read so far, so scrolling back costs nothing.
 #[derive(Debug, Default)]
 pub struct Commits(HashMap<ObjectId, Commit>);
@@ -220,6 +251,8 @@ pub struct Workspace {
     pub open_file: Option<OpenFile>,
     /// The conflicted file in the centre, if any.
     pub merge: Option<Merge>,
+    /// The interactive rebase in the centre, if any.
+    pub plan: Option<Plan>,
     /// The commit summary being written.
     pub summary: String,
     /// The rest of the commit message.
@@ -258,6 +291,7 @@ impl Workspace {
             files: None,
             open_file: None,
             merge: None,
+            plan: None,
             summary: String::new(),
             description: String::new(),
             amend: false,
@@ -314,18 +348,30 @@ impl Workspace {
             }
             Action::Open(source) => match diff::read(&self.repo.git, &source) {
                 Ok(diff) => {
-                    self.merge = None;
+                    (self.merge, self.plan) = (None, None);
                     self.open_file = Some(OpenFile { source, diff, lines: BTreeSet::new() });
                 }
                 Err(error) => self.error = Some(error.to_string()),
             },
             Action::Resolve(path) => match Conflicts::read(&self.repo.git, &path) {
-                Ok(conflicts) => (self.merge, self.open_file) = (Some(Merge::new(path, conflicts)), None),
+                Ok(conflicts) => {
+                    (self.merge, self.open_file, self.plan) = (Some(Merge::new(path, conflicts)), None, None);
+                }
                 Err(error) => self.error = Some(error.to_string()),
             },
             Action::Pick(pick) => self.merge.iter_mut().for_each(|merge| merge.pick(pick)),
             Action::GoTo(at) => self.merge.iter_mut().for_each(|merge| merge.go_to(at)),
-            Action::CloseFile => (self.open_file, self.merge) = (None, None),
+            Action::Plan(onto) => match self.repo.git.rebase_plan(&onto) {
+                Ok(listed) if listed.is_empty() => self.error = Some(format!("Nothing to rebase onto {onto:.7}")),
+                Ok(listed) => (self.plan, self.open_file, self.merge) = (Some(Plan::new(onto, listed)), None, None),
+                Err(error) => self.error = Some(error.to_string()),
+            },
+            Action::Step(row, step) => self.plan.iter_mut().for_each(|plan| plan.steps[row].0 = step),
+            Action::Shift(from, to) => self.plan.iter_mut().for_each(|plan| {
+                let step = plan.steps.remove(from);
+                plan.steps.insert(to, step);
+            }),
+            Action::CloseFile => (self.open_file, self.merge, self.plan) = (None, None, None),
             Action::ToggleLine(hunk, line) => {
                 if let Some(file) = &mut self.open_file
                     && !file.lines.remove(&(hunk, line))
@@ -453,6 +499,21 @@ impl Workspace {
                 Some(Ok(conflicts)) if conflicts == merge.conflicts => {}
                 Some(Ok(conflicts)) => *merge = Merge::new(std::mem::take(&mut merge.path), conflicts),
                 Some(Err(error)) => (self.merge, self.error) = (None, Some(error.to_string())),
+            }
+        }
+        // A rebase that started is done with its plan, also when it stopped at a conflict.
+        if matches!(op, Some(Op::RebaseInteractive { .. }))
+            && (self.error.is_none() || self.snapshot.underway.is_some())
+        {
+            self.plan = None;
+        }
+        if let Some(plan) = &mut self.plan {
+            // Commits changed outside start the plan again, so that the rebase never leaves one out.
+            match self.repo.git.rebase_plan(&plan.onto) {
+                Ok(listed) if listed == plan.listed => {}
+                Ok(listed) if listed.is_empty() => self.plan = None,
+                Ok(listed) => *plan = Plan::new(std::mem::take(&mut plan.onto), listed),
+                Err(error) => (self.plan, self.error) = (None, Some(error.to_string())),
             }
         }
         if let Some(file) = &mut self.open_file {

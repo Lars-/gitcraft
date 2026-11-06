@@ -50,6 +50,8 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
 - **Discard**: throw away the changes to a file, a hunk or single lines, after you confirm.
 - **Branches and tags**: create, check out, merge, rebase, delete, from the sidebar or a right click.
 - **Commits from the graph**: check out, cherry-pick, revert, reset (soft, mixed, hard), copy the SHA.
+- **Interactive rebase**: right-click a commit to rebase onto it, and put the commits after it in
+  a new order, squash or fix them up into the one below, or drop them, before you start.
 - **Remotes**: fetch, pull and push, with how far ahead and behind you are. A branch that went its
   own way, after an amend or a rebase, is force pushed with a lease, so nobody else's work is lost.
 - **Stashes**: stash, apply, pop and drop.

@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use crate::{Error, Result};
+use crate::{Error, ObjectId, Result};
 
 /// A repository directory to run `git` in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +39,11 @@ impl Git {
         if let Op::Undo { mark, .. } = op {
             command.env("GIT_REFLOG_ACTION", mark);
         }
+        if let Op::RebaseInteractive { todo, .. } = op {
+            // git hands its list of what to do to an editor; this one writes ours over it.
+            let todo: String = todo.iter().flat_map(|(step, sha)| [step.word(), " ", sha, "\n"]).collect();
+            command.env("GIT_SEQUENCE_EDITOR", r#"printf "%s" "$GITCRAFT_TODO" >"#).env("GITCRAFT_TODO", todo);
+        }
         checked(&args, &output(command, op.input())?, &[0])
     }
 
@@ -49,6 +54,22 @@ impl Git {
         let (tip, others) = (format!("refs/heads/{branch}"), format!("--exclude={branch}"));
         let count = self.run(&["rev-list", "--count", &tip, "--not", &others, "--branches", "--tags", "--remotes"])?;
         count.trim().parse().map_err(|_| Error::Parse(count))
+    }
+
+    /// The commits a rebase onto `onto` takes along, oldest first, as `git rebase -i` lists them:
+    /// those of `HEAD` without a copy in `onto`, leaving out merges.
+    pub fn rebase_plan(&self, onto: &str) -> Result<Vec<ObjectId>> {
+        let range = format!("{onto}...HEAD");
+        let list = self.run(&[
+            "rev-list",
+            "--reverse",
+            "--topo-order",
+            "--no-merges",
+            "--cherry-pick",
+            "--right-only",
+            &range,
+        ])?;
+        list.lines().map(|sha| ObjectId::from_hex(sha.as_bytes()).map_err(|_| Error::Parse(sha.to_owned()))).collect()
     }
 
     /// Runs `git` with `input` on standard input, accepting the exit codes in `ok`.
@@ -168,6 +189,34 @@ impl ResetMode {
     }
 }
 
+/// What an interactive rebase does with a commit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    /// Keep it.
+    Pick,
+    /// Meld it into the commit before it, keeping both messages.
+    Squash,
+    /// Meld it into the commit before it, keeping the message of that one.
+    Fixup,
+    /// Leave it out.
+    Drop,
+}
+
+impl Step {
+    /// Every step.
+    pub const ALL: [Self; 4] = [Self::Pick, Self::Squash, Self::Fixup, Self::Drop];
+
+    /// Its command in the list `git rebase -i` works through.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Pick => "pick",
+            Self::Squash => "squash",
+            Self::Fixup => "fixup",
+            Self::Drop => "drop",
+        }
+    }
+}
+
 fn strs(list: &[String]) -> Vec<&str> {
     list.iter().map(String::as_str).collect()
 }
@@ -236,6 +285,15 @@ pub enum Op {
     Merge(String),
     /// Rebase the current branch onto another.
     Rebase(String),
+    /// Rebase the current branch onto a commit, doing with each commit what the list says, in its
+    /// order. The first commit it keeps must be a pick: git cannot meld it into nothing, and stops
+    /// with the rebase under way.
+    RebaseInteractive {
+        /// The commit to rebase onto.
+        onto: String,
+        /// Each commit with its step, oldest first (see [`Git::rebase_plan`]).
+        todo: Vec<(Step, String)>,
+    },
     /// Copy a commit onto the current branch.
     CherryPick(String),
     /// Add a commit that undoes another.
@@ -322,6 +380,7 @@ impl Op {
             Self::DeleteBranch(name) => (&["branch", "-D"], vec![name]),
             Self::Merge(target) => (&["merge", "--no-edit"], vec![target]),
             Self::Rebase(onto) => (&["rebase"], vec![onto]),
+            Self::RebaseInteractive { onto, .. } => (&["rebase", "-i"], vec![onto]),
             Self::CherryPick(commit) => (&["cherry-pick"], vec![commit]),
             Self::Revert(commit) => (&["revert", "--no-edit"], vec![commit]),
             Self::Continue(command) => (&[], vec![command, "--continue"]),

@@ -9,7 +9,7 @@ use gitcraft_core::status::Change;
 
 use crate::app::{Action, Confirm, Selection, Workspace};
 use crate::start::Start;
-use crate::{details, diff, graph, merge, sidebar, theme};
+use crate::{details, diff, graph, merge, rebase, sidebar, theme};
 
 const RECENT: usize = 10;
 
@@ -196,6 +196,8 @@ fn workspace(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     egui::CentralPanel::default().show(ui, |ui| {
         if let Some(merge) = &mut ws.merge {
             merge::show(ui, merge, actions);
+        } else if ws.plan.is_some() {
+            rebase::show(ui, ws, actions);
         } else if let Some(file) = &ws.open_file {
             diff::show(ui, file, actions);
         } else {
@@ -267,8 +269,7 @@ fn underway(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
     let conflicts = entries.iter().filter(|e| matches!(e.unstaged, Some(Change::Conflicted { .. }))).count();
     let (command, idle) = (underway.command, ws.busy().is_none());
     ui.horizontal(|ui| {
-        let (first, rest) = command.split_at(1);
-        ui.strong(format!("{}{rest} in progress", first.to_uppercase()));
+        ui.strong(format!("{} in progress", theme::capital(command)));
         ui.weak(&underway.message);
         if conflicts > 0 {
             ui.colored_label(theme::ERROR, theme::count(conflicts, "conflicted file"));

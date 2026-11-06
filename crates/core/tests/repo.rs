@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use gitcraft_core::conflict::{Conflicts, Pick};
 use gitcraft_core::diff::{self, FileDiff, LineKind, Source};
-use gitcraft_core::git::{self, Git, Op, ResetMode};
+use gitcraft_core::git::{self, Git, Op, ResetMode, Step};
 use gitcraft_core::repo::{Label, RefKind, Repo, Underway};
 use gitcraft_core::status::{self, Change, Status};
 use gitcraft_core::undo::{self, Move, Undo};
@@ -380,6 +380,34 @@ fn a_rebase_is_one_action_and_undo_keeps_uncommitted_work() {
     assert_eq!(undo(&git), Undo::default());
     git.run(&["rebase", "--abort"]).unwrap();
     assert_eq!(what(undo(&git).last.as_ref()), Some("commit: Clash"));
+}
+
+#[test]
+fn rebase_interactively_in_a_new_order_with_squash_fixup_and_drop() {
+    let (_dir, git) = repo();
+    let root = commit(&git, "root.txt", "root\n", "Root");
+    let [one, two, three, four, five] =
+        ["one", "two", "three", "four", "five"].map(|name| commit(&git, &format!("{name}.txt"), "\n", name));
+    git.apply(&Op::Branch { name: "side".into(), at: root.clone() }).unwrap();
+    git.apply(&Op::CherryPick(five.clone())).unwrap();
+    git.apply(&Op::Checkout("main".into())).unwrap();
+
+    let listed = |onto: &str| git.rebase_plan(onto).unwrap();
+    assert_eq!(listed(&root), [&one, &two, &three, &four, &five].map(|sha| id(sha)));
+    assert_eq!(listed("side"), [&one, &two, &three, &four].map(|sha| id(sha)), "side has a copy of five");
+    assert_eq!(listed("HEAD"), [] as [ObjectId; 0]);
+
+    let todo =
+        [(Step::Pick, three), (Step::Squash, one), (Step::Drop, two), (Step::Pick, five.clone()), (Step::Fixup, four)];
+    git.apply(&Op::RebaseInteractive { onto: root, todo: todo.into() }).unwrap();
+    assert_eq!(git.run(&["log", "--format=%B|"]).unwrap(), "five\n|\nthree\n\none\n|\nRoot\n|\n");
+    assert_eq!(git.run(&["show", "--name-only", "--format="]).unwrap(), "five.txt\nfour.txt\n");
+    assert_eq!(git.run(&["ls-files"]).unwrap(), "five.txt\nfour.txt\none.txt\nroot.txt\nthree.txt\n");
+
+    let steps = undo(&git);
+    assert_eq!(what(steps.last.as_ref()), Some("rebase"));
+    git.apply(&steps.last.unwrap().op).unwrap();
+    assert_eq!(head(&git), five);
 }
 
 /// `main` and `topic` both change `a.txt`, and `main` deletes `b.txt`, which `topic` changes.
