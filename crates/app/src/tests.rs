@@ -219,6 +219,21 @@ fn undo_a_commit_and_redo_it() {
     assert!(harness.query_by_label("Uncommitted changes").is_none());
 }
 
+#[test]
+fn a_selected_commit_that_left_the_graph_gives_way_to_head() {
+    let (_dir, git) = repo();
+    let first = gitcraft_core::ObjectId::from_hex(rev(&git, "HEAD").trim().as_bytes()).unwrap();
+    commit(&git, "Second commit");
+    let mut harness = app(Some(git.dir()));
+    assert_eq!(harness.get_all_by_label("Second commit").count(), 2, "in the graph and in the details");
+
+    git.run(&["reset", "-q", "--hard", "HEAD~1"]).unwrap();
+    wait_until(&mut harness, "the details of HEAD", |harness| {
+        harness.state().workspace().unwrap().selection == Some(Selection::Commit(first))
+    });
+    assert!(harness.query_by_label("Second commit").is_none(), "neither in the graph nor in the details");
+}
+
 fn read(git: &Git, path: &str) -> String {
     fs::read_to_string(git.dir().join(path)).unwrap()
 }
