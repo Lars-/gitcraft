@@ -481,7 +481,8 @@ impl Workspace {
             Some(Err(error)) => self.error = Some(error.to_string()),
             None => {}
         }
-        if self.selection == Some(Selection::Wip) && self.snapshot.status.is_clean() || self.selection.is_none() {
+        // Nothing selected, changes that are gone, or a commit that left the graph: show HEAD.
+        if self.selected_row().is_none() {
             let head = self.snapshot.history.head.map(|row| self.snapshot.history.ids[row]);
             match head {
                 Some(id) => self.select(Selection::Commit(id)),
