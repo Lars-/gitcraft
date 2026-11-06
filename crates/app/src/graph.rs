@@ -203,6 +203,7 @@ pub fn commit_menu(ui: &mut Ui, sha: &str, labels: &[Ref], current: Option<&str>
     item(ui, "Create tag here…", Action::Prompt(Prompt::Tag { at: sha.to_owned() }));
     item(ui, "Cherry-pick commit", Action::Run(Op::CherryPick(sha.to_owned())));
     item(ui, "Revert commit", Action::Run(Op::Revert(sha.to_owned())));
+    item(ui, "Interactive rebase onto this commit…", Action::Plan(sha.to_owned()));
     ui.menu_button("Reset current branch to this commit", |ui| {
         for (text, mode) in [
             ("Soft: keep all changes", ResetMode::Soft),

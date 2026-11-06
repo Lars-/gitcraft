@@ -76,6 +76,12 @@ pub fn count(n: usize, thing: &str) -> String {
     format!("{n} {thing}{}", if n == 1 { "" } else { "s" })
 }
 
+/// A word with a capital first letter, like "Rebase".
+pub fn capital(word: &str) -> String {
+    let (first, rest) = word.split_at(word.chars().next().map_or(0, char::len_utf8));
+    format!("{}{rest}", first.to_uppercase())
+}
+
 /// Seconds since 1970, now.
 pub fn now() -> i64 {
     std::time::SystemTime::now()
