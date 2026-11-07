@@ -3,7 +3,7 @@
 //! The views never change the state themselves: they return [`Action`]s, which
 //! [`Workspace::apply`] carries out after the frame is drawn.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -191,19 +191,29 @@ pub struct Plan {
     pub listed: Vec<ObjectId>,
     /// Each commit with what to do with it, in the new order, newest first like the graph.
     pub steps: Vec<(Step, ObjectId)>,
+    /// The new message of each commit that was to be reworded, also when it is not any more.
+    pub messages: HashMap<ObjectId, String>,
 }
 
 impl Plan {
     fn new(onto: String, listed: Vec<ObjectId>) -> Self {
-        Self { steps: listed.iter().rev().map(|&id| (Step::Pick, id)).collect(), onto, listed }
+        let steps = listed.iter().rev().map(|&id| (Step::Pick, id)).collect();
+        Self { steps, onto, listed, messages: HashMap::new() }
     }
 
-    /// The rebase, unless the oldest commit it keeps would have nothing to meld into.
-    pub fn op(&self) -> Option<Op> {
-        let todo: Vec<_> = self.steps.iter().rev().map(|&(step, id)| (step, id.to_string())).collect();
-        let first = todo.iter().map(|(step, _)| *step).find(|&step| step != Step::Drop);
-        let melds = matches!(first, Some(Step::Squash | Step::Fixup));
-        (!melds).then(|| Op::RebaseInteractive { onto: self.onto.clone(), todo })
+    /// The rebase, or why it cannot start.
+    pub fn op(&self) -> Result<Op, &'static str> {
+        let first = self.steps.iter().rev().map(|&(step, _)| step).find(|&step| step != Step::Drop);
+        if matches!(first, Some(Step::Squash | Step::Fixup)) {
+            return Err("The oldest commit it keeps has nothing below it to meld into");
+        }
+        let rewords = self.steps.iter().filter(|&&(step, _)| step == Step::Reword);
+        let messages: BTreeMap<_, _> = rewords.map(|(_, id)| (id.to_string(), self.messages[id].clone())).collect();
+        if messages.values().any(|message| message.trim().is_empty()) {
+            return Err("A commit to reword needs a message");
+        }
+        let todo = self.steps.iter().rev().map(|&(step, id)| (step, id.to_string())).collect();
+        Ok(Op::RebaseInteractive { onto: self.onto.clone(), todo, messages })
     }
 }
 
@@ -366,7 +376,23 @@ impl Workspace {
                 Ok(listed) => (self.plan, self.open_file, self.merge) = (Some(Plan::new(onto, listed)), None, None),
                 Err(error) => self.error = Some(error.to_string()),
             },
-            Action::Step(row, step) => self.plan.iter_mut().for_each(|plan| plan.steps[row].0 = step),
+            Action::Step(row, step) => {
+                let Some(plan) = &mut self.plan else { return };
+                let id = plan.steps[row].1;
+                // A new message starts from the one it has.
+                if step == Step::Reword && !plan.messages.contains_key(&id) {
+                    match self.commits.get(&self.repo, id) {
+                        Ok(commit) => {
+                            plan.messages.insert(id, commit.message.trim_end().to_owned());
+                        }
+                        Err(error) => {
+                            self.error = Some(error.to_string());
+                            return;
+                        }
+                    }
+                }
+                plan.steps[row].0 = step;
+            }
             Action::Shift(from, to) => self.plan.iter_mut().for_each(|plan| {
                 let step = plan.steps.remove(from);
                 plan.steps.insert(to, step);
