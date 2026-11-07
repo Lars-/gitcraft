@@ -1,5 +1,6 @@
 //! End-to-end tests against real repositories made with the installed `git`.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
@@ -399,7 +400,7 @@ fn rebase_interactively_in_a_new_order_with_squash_fixup_and_drop() {
 
     let todo =
         [(Step::Pick, three), (Step::Squash, one), (Step::Drop, two), (Step::Pick, five.clone()), (Step::Fixup, four)];
-    git.apply(&Op::RebaseInteractive { onto: root, todo: todo.into() }).unwrap();
+    git.apply(&Op::RebaseInteractive { onto: root, todo: todo.into(), messages: BTreeMap::new() }).unwrap();
     assert_eq!(git.run(&["log", "--format=%B|"]).unwrap(), "five\n|\nthree\n\none\n|\nRoot\n|\n");
     assert_eq!(git.run(&["show", "--name-only", "--format="]).unwrap(), "five.txt\nfour.txt\n");
     assert_eq!(git.run(&["ls-files"]).unwrap(), "five.txt\nfour.txt\none.txt\nroot.txt\nthree.txt\n");
@@ -408,6 +409,32 @@ fn rebase_interactively_in_a_new_order_with_squash_fixup_and_drop() {
     assert_eq!(what(steps.last.as_ref()), Some("rebase"));
     git.apply(&steps.last.unwrap().op).unwrap();
     assert_eq!(head(&git), five);
+}
+
+#[test]
+fn reword_in_an_interactive_rebase_keeps_the_author_also_after_a_conflict() {
+    let (_dir, git) = repo();
+    let root = commit(&git, "a.txt", "root\n", "Root");
+    let one = commit(&git, "a.txt", "one\n", "One");
+    commit(&git, "a.txt", "two\n", "Two");
+    git.run(&["commit", "--amend", "--no-edit", "--author=Ann Other <ann@example.com>", "--date=2001-02-03T04:05:06Z"])
+        .unwrap();
+    let two = head(&git);
+    let three = commit(&git, "b.txt", "three\n", "Three");
+    let four = commit(&git, "c.txt", "four\n", "Four");
+
+    // Without one, two clashes with the root; the rebase stops before it rewords two.
+    let todo = [(Step::Drop, one), (Step::Reword, two.clone()), (Step::Squash, three), (Step::Reword, four.clone())];
+    let messages = [(two, "  Second\n\nWith a body\n\n".into()), (four, "Fourth".into())].into();
+    let error = git.apply(&Op::RebaseInteractive { onto: root, todo: todo.into(), messages }).unwrap_err();
+    assert!(error.to_string().contains("could not apply"), "{error}");
+    write(&git, "a.txt", "two\n");
+    git.apply(&Op::Stage(vec!["a.txt".into()])).unwrap();
+    git.apply(&Op::Continue("rebase")).unwrap();
+
+    assert_eq!(git.run(&["log", "--format=%B|"]).unwrap(), "Fourth\n|\nSecond\n\nWith a body\n\nThree\n|\nRoot\n|\n");
+    assert_eq!(git.run(&["log", "-1", "--format=%an %at", "HEAD~"]).unwrap(), "Ann Other 981173106\n");
+    assert_eq!(git.run(&["ls-files"]).unwrap(), "a.txt\nb.txt\nc.txt\n");
 }
 
 /// `main` and `topic` both change `a.txt`, and `main` deletes `b.txt`, which `topic` changes.

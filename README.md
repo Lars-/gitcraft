@@ -51,7 +51,8 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
 - **Branches and tags**: create, check out, merge, rebase, delete, from the sidebar or a right click.
 - **Commits from the graph**: check out, cherry-pick, revert, reset (soft, mixed, hard), copy the SHA.
 - **Interactive rebase**: right-click a commit to rebase onto it, and put the commits after it in
-  a new order, squash or fix them up into the one below, or drop them, before you start.
+  a new order (with the arrows or by dragging), give them a new message, squash or fix them up
+  into the one below, or drop them, before you start.
 - **Remotes**: fetch, pull and push, with how far ahead and behind you are. A branch that went its
   own way, after an amend or a rebase, is force pushed with a lease, so nobody else's work is lost.
 - **Stashes**: stash, apply, pop and drop.
@@ -72,7 +73,7 @@ credentials and commit signing work exactly as they do on the command line.
 
 ## Install
 
-GitCraft needs [git](https://git-scm.com/downloads) on your `PATH`.
+GitCraft needs [git](https://git-scm.com/downloads) 2.32 or newer on your `PATH`.
 
 Builds for Windows, macOS and Linux (x86-64 and ARM) come with each
 [release](https://github.com/Lars-/gitcraft/releases). To build it yourself, install

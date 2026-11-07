@@ -34,11 +34,13 @@ drive it the way a user does, and keeps every benchmark as fast as before.
       by side and the result below; take ours, theirs or both for each conflict, then save
 - [x] Interactive rebase, part 1: from a commit's menu, the commits after it in a list, newest
       first; move them up and down, pick, squash, fix up or drop each, then start
+- [x] Interactive rebase, part 2: reword a commit with a new message, and reorder the list by
+      dragging
 
 ## Next
 
-1. **Interactive rebase, part 2**: reword a commit with a new message, and reorder by dragging,
-   in the list and in the graph.
+1. **Interactive rebase, part 3**: reorder by dragging a commit in the graph, and reword a commit
+   from its menu.
 2. **Credentials**: ask for a username, password or passphrase when git needs one.
 3. **Push and pull options**: force push on request, push tags, pick the remote, pull with rebase.
 4. **Remotes**: add, edit and remove.

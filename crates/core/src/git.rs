@@ -1,5 +1,6 @@
 //! Running the user's `git`, and the changes GitCraft makes with it.
 
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -39,10 +40,18 @@ impl Git {
         if let Op::Undo { mark, .. } = op {
             command.env("GIT_REFLOG_ACTION", mark);
         }
-        if let Op::RebaseInteractive { todo, .. } = op {
+        if let Op::RebaseInteractive { todo, messages, .. } = op {
             // git hands its list of what to do to an editor; this one writes ours over it.
-            let todo: String = todo.iter().flat_map(|(step, sha)| [step.word(), " ", sha, "\n"]).collect();
-            command.env("GIT_SEQUENCE_EDITOR", r#"printf "%s" "$GITCRAFT_TODO" >"#).env("GITCRAFT_TODO", todo);
+            let mut list = String::new();
+            for (step, sha) in todo {
+                match (step, messages.get(sha)) {
+                    (Step::Reword, Some(message)) => {
+                        list.extend(["pick ", sha, "\nfixup -C ", &self.reworded(sha, message)?, "\n"]);
+                    }
+                    _ => list.extend([step.word(), " ", sha, "\n"]),
+                }
+            }
+            command.env("GIT_SEQUENCE_EDITOR", r#"printf "%s" "$GITCRAFT_TODO" >"#).env("GITCRAFT_TODO", list);
         }
         checked(&args, &output(command, op.input())?, &[0])
     }
@@ -70,6 +79,16 @@ impl Git {
             &range,
         ])?;
         list.lines().map(|sha| ObjectId::from_hex(sha.as_bytes()).map_err(|_| Error::Parse(sha.to_owned()))).collect()
+    }
+
+    /// A commit with the files of `sha` and a new `message`, on top of it: `fixup -C` with it gives
+    /// `sha` that message. It lives in the list of the rebase, so it lasts when the rebase stops.
+    fn reworded(&self, sha: &str, message: &str) -> Result<String> {
+        let tree = format!("{sha}^{{tree}}");
+        let message = format!("{}\n", message.trim());
+        let args = ["commit-tree", "--no-gpg-sign", &tree, "-p", sha, "-F", "-"];
+        let new = self.run_with(&args, Some(message.as_bytes()), &[0])?;
+        Ok(new.trim().to_owned())
     }
 
     /// Runs `git` with `input` on standard input, accepting the exit codes in `ok`.
@@ -194,6 +213,8 @@ impl ResetMode {
 pub enum Step {
     /// Keep it.
     Pick,
+    /// Keep it with a new message (see [`Op::RebaseInteractive`]).
+    Reword,
     /// Meld it into the commit before it, keeping both messages.
     Squash,
     /// Meld it into the commit before it, keeping the message of that one.
@@ -204,12 +225,14 @@ pub enum Step {
 
 impl Step {
     /// Every step.
-    pub const ALL: [Self; 4] = [Self::Pick, Self::Squash, Self::Fixup, Self::Drop];
+    pub const ALL: [Self; 5] = [Self::Pick, Self::Reword, Self::Squash, Self::Fixup, Self::Drop];
 
     /// Its command in the list `git rebase -i` works through.
     pub fn word(self) -> &'static str {
         match self {
             Self::Pick => "pick",
+            // Without a new message, git keeps the one it has: it edits it with `true`.
+            Self::Reword => "reword",
             Self::Squash => "squash",
             Self::Fixup => "fixup",
             Self::Drop => "drop",
@@ -286,13 +309,15 @@ pub enum Op {
     /// Rebase the current branch onto another.
     Rebase(String),
     /// Rebase the current branch onto a commit, doing with each commit what the list says, in its
-    /// order. The first commit it keeps must be a pick: git cannot meld it into nothing, and stops
-    /// with the rebase under way.
+    /// order. The first commit it keeps must be a pick or a reword: git cannot meld it into
+    /// nothing, and stops with the rebase under way.
     RebaseInteractive {
         /// The commit to rebase onto.
         onto: String,
         /// Each commit with its step, oldest first (see [`Git::rebase_plan`]).
         todo: Vec<(Step, String)>,
+        /// The new message of each commit to reword.
+        messages: BTreeMap<String, String>,
     },
     /// Copy a commit onto the current branch.
     CherryPick(String),

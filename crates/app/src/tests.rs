@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use eframe::egui::{Key, Role};
+use eframe::egui::{self, Key, Modifiers, Role};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use gitcraft_core::git::{Git, Op};
@@ -757,7 +757,16 @@ fn reorder_squash_and_drop_commits_in_an_interactive_rebase() {
     harness.get_by_label("Pick Add one").click();
     harness.get_by_label("Move Add one up").click();
     settle(&mut harness);
-    harness.get_by_label("Move Add one up").click();
+    // Newest first: three, one, two. Dragging one onto three puts it in its place.
+    let from = harness.get_by_label("Add one").rect().center();
+    let to = egui::pos2(from.x, harness.get_by_label("Pick Add three").rect().center().y);
+    harness.drag_at(from);
+    harness.step();
+    for at in [from - egui::vec2(0.0, 10.0), to] {
+        harness.hover_at(at);
+        harness.step();
+    }
+    harness.drop_at(to);
     settle(&mut harness);
     // Newest first: one, three, two.
     harness.get_by_label("Squash Add one").click();
@@ -769,6 +778,49 @@ fn reorder_squash_and_drop_commits_in_an_interactive_rebase() {
     assert_eq!(git.run(&["log", "--format=%B|"]).unwrap(), "Add three\n\nAdd one\n|\nFirst commit\n|\n");
     assert_eq!(git.run(&["ls-files"]).unwrap(), "file.txt\none\nthree\n");
     assert!(harness.state().workspace().unwrap().plan.is_none());
+    assert_eq!(harness.state().workspace().unwrap().error, None);
+}
+
+#[test]
+fn reword_a_commit_in_an_interactive_rebase() {
+    let (_dir, git) = repo();
+    add_files(&git, &["one", "two"]);
+    let mut harness = app(Some(git.dir()));
+    menu(&mut harness, "First commit", &["Interactive rebase onto this commit…"]);
+    harness.get_by_label("Reword Add one").click();
+    settle(&mut harness);
+    let field = "New message of Add one";
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    assert!(harness.state().workspace().unwrap().plan.is_none(), "Escape leaves the rebase");
+    menu(&mut harness, "First commit", &["Interactive rebase onto this commit…"]);
+    harness.get_by_label("Reword Add one").click();
+    settle(&mut harness);
+    assert_eq!(harness.get_by_label(field).value().as_deref(), Some("Add one"), "it starts from the old message");
+
+    let retype = |harness: &mut Harness<'_, App>, text: &str| {
+        harness.get_by_label(field).click();
+        harness.run();
+        harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
+        harness.get_by_label(field).type_text(text);
+        harness.run();
+    };
+    retype(&mut harness, " ");
+    assert!(harness.get_by_label("Start rebase").accesskit_node().is_disabled(), "a message cannot be empty");
+    retype(&mut harness, "One\n\nWith a body");
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    assert!(harness.state().workspace().unwrap().plan.is_some(), "Escape in the message leaves only the message");
+    harness.get_by_label("Pick Add one").click();
+    settle(&mut harness);
+    assert!(harness.query_by_label(field).is_none());
+    harness.get_by_label("Reword Add one").click();
+    settle(&mut harness);
+    assert_eq!(harness.get_by_label(field).value().as_deref(), Some("One\n\nWith a body"), "the new one stays");
+
+    harness.get_by_label("Start rebase").click();
+    settle(&mut harness);
+    assert_eq!(git.run(&["log", "--format=%B|"]).unwrap(), "Add two\n|\nOne\n\nWith a body\n|\nFirst commit\n|\n");
     assert_eq!(harness.state().workspace().unwrap().error, None);
 }
 
