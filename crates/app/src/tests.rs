@@ -725,6 +725,18 @@ fn a_conflicted_file_changed_outside_starts_again() {
     assert!(harness.state().workspace().unwrap().merge.is_none());
 }
 
+/// Drags with the mouse from `from` to `to`, going far enough first to tell it from a click.
+fn drag(harness: &mut Harness<'_, App>, from: egui::Pos2, to: egui::Pos2) {
+    harness.drag_at(from);
+    harness.step();
+    for at in [from - egui::vec2(0.0, 10.0), to] {
+        harness.hover_at(at);
+        harness.step();
+    }
+    harness.drop_at(to);
+    settle(harness);
+}
+
 /// Commits a file of its own for each name, so that the commits go in any order.
 fn add_files(git: &Git, names: &[&str]) {
     for name in names {
@@ -760,14 +772,7 @@ fn reorder_squash_and_drop_commits_in_an_interactive_rebase() {
     // Newest first: three, one, two. Dragging one onto three puts it in its place.
     let from = harness.get_by_label("Add one").rect().center();
     let to = egui::pos2(from.x, harness.get_by_label("Pick Add three").rect().center().y);
-    harness.drag_at(from);
-    harness.step();
-    for at in [from - egui::vec2(0.0, 10.0), to] {
-        harness.hover_at(at);
-        harness.step();
-    }
-    harness.drop_at(to);
-    settle(&mut harness);
+    drag(&mut harness, from, to);
     // Newest first: one, three, two.
     harness.get_by_label("Squash Add one").click();
     harness.get_by_label("Drop Add two").click();
@@ -821,6 +826,60 @@ fn reword_a_commit_in_an_interactive_rebase() {
     harness.get_by_label("Start rebase").click();
     settle(&mut harness);
     assert_eq!(git.run(&["log", "--format=%B|"]).unwrap(), "Add two\n|\nOne\n\nWith a body\n|\nFirst commit\n|\n");
+    assert_eq!(harness.state().workspace().unwrap().error, None);
+}
+
+#[test]
+fn reword_a_commit_from_its_menu() {
+    let (_dir, git) = repo();
+    add_files(&git, &["one", "two"]);
+    let mut harness = app(Some(git.dir()));
+    menu(&mut harness, "First commit", &["Reword commit…"]);
+    harness.get_by_label_contains("Only commits of the current branch can be moved or reworded");
+    assert!(harness.state().workspace().unwrap().plan.is_none());
+
+    menu(&mut harness, "Add one", &["Reword commit…"]);
+    harness.get_by_label(&format!("Interactive rebase onto {}", &rev(&git, "HEAD~2")[..7]));
+    let field = harness.get_by_label("New message of Add one");
+    assert!(field.is_focused(), "the cursor is in the new message");
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    harness.get_by_label("New message of Add one").type_text("One");
+    harness.run();
+    harness.get_by_label("Start rebase").click();
+    settle(&mut harness);
+    assert_eq!(log(&git), "Add two\nOne\nFirst commit\n");
+    assert_eq!(harness.state().workspace().unwrap().error, None);
+}
+
+#[test]
+fn drag_a_commit_onto_another_in_the_graph_to_move_it_there() {
+    let (_dir, git) = repo();
+    git.run(&["checkout", "-q", "-b", "side"]).unwrap();
+    add_files(&git, &["side"]);
+    git.run(&["checkout", "-q", "main"]).unwrap();
+    add_files(&git, &["one", "two", "three"]);
+    let mut harness = app(Some(git.dir()));
+    let drag_onto = |harness: &mut Harness<'_, App>, from: &str, onto: &str| {
+        let [from, onto] =
+            [from, onto].map(|summary| harness.get_by_role_and_label(Role::Button, summary).rect().center());
+        drag(harness, from, onto);
+    };
+    drag_onto(&mut harness, "Add three", "Add side");
+    harness.get_by_label_contains("Only commits of the current branch can be moved or reworded");
+    assert!(harness.state().workspace().unwrap().plan.is_none());
+
+    // Older onto newer and newer onto older: each takes the other's place, once started.
+    drag_onto(&mut harness, "Add one", "Add two");
+    harness.get_by_label(&format!("Interactive rebase onto {}", &rev(&git, "HEAD~3")[..7]));
+    assert_eq!(log(&git), "Add three\nAdd two\nAdd one\nFirst commit\n", "nothing happens before the start");
+    harness.get_by_label("Start rebase").click();
+    settle(&mut harness);
+    assert_eq!(log(&git), "Add three\nAdd one\nAdd two\nFirst commit\n");
+    drag_onto(&mut harness, "Add three", "Add one");
+    harness.get_by_label(&format!("Interactive rebase onto {}", &rev(&git, "HEAD~2")[..7]));
+    harness.get_by_label("Start rebase").click();
+    settle(&mut harness);
+    assert_eq!(log(&git), "Add one\nAdd three\nAdd two\nFirst commit\n");
     assert_eq!(harness.state().workspace().unwrap().error, None);
 }
 

@@ -46,6 +46,10 @@ pub enum Action {
     GoTo(usize),
     /// Put together an interactive rebase onto a commit, in the centre.
     Plan(String),
+    /// Put together an interactive rebase that gives a commit a new message.
+    Reword(ObjectId),
+    /// Put together an interactive rebase that moves a commit to the place of another.
+    Move(ObjectId, ObjectId),
     /// Set what the rebase does with a commit of the plan.
     Step(usize, Step),
     /// Move a commit of the plan to another place.
@@ -193,12 +197,14 @@ pub struct Plan {
     pub steps: Vec<(Step, ObjectId)>,
     /// The new message of each commit that was to be reworded, also when it is not any more.
     pub messages: HashMap<ObjectId, String>,
+    /// The commit whose new message gets the cursor.
+    pub focus: Option<ObjectId>,
 }
 
 impl Plan {
     fn new(onto: String, listed: Vec<ObjectId>) -> Self {
         let steps = listed.iter().rev().map(|&id| (Step::Pick, id)).collect();
-        Self { steps, onto, listed, messages: HashMap::new() }
+        Self { steps, onto, listed, messages: HashMap::new(), focus: None }
     }
 
     /// The rebase, or why it cannot start.
@@ -371,11 +377,22 @@ impl Workspace {
             },
             Action::Pick(pick) => self.merge.iter_mut().for_each(|merge| merge.pick(pick)),
             Action::GoTo(at) => self.merge.iter_mut().for_each(|merge| merge.go_to(at)),
-            Action::Plan(onto) => match self.repo.git.rebase_plan(&onto) {
-                Ok(listed) if listed.is_empty() => self.error = Some(format!("Nothing to rebase onto {onto:.7}")),
-                Ok(listed) => (self.plan, self.open_file, self.merge) = (Some(Plan::new(onto, listed)), None, None),
-                Err(error) => self.error = Some(error.to_string()),
-            },
+            Action::Plan(onto) => {
+                self.plan(onto);
+            }
+            Action::Reword(id) => {
+                if let Some(&[row]) = self.plan_from(id, &[id]).as_deref() {
+                    self.apply(ctx, Action::Step(row, Step::Reword));
+                    self.plan.iter_mut().for_each(|plan| plan.focus = Some(id));
+                }
+            }
+            Action::Move(from, to) => {
+                let history = &self.snapshot.history;
+                let oldest = if history.row(from) > history.row(to) { from } else { to };
+                if let Some(&[from, to]) = self.plan_from(oldest, &[from, to]).as_deref() {
+                    self.apply(ctx, Action::Shift(from, to));
+                }
+            }
             Action::Step(row, step) => {
                 let Some(plan) = &mut self.plan else { return };
                 let id = plan.steps[row].1;
@@ -418,6 +435,42 @@ impl Workspace {
             },
             Action::OpenRepo(_) | Action::ShowTab(_) | Action::CloseTab(_) => unreachable!("the app handles tabs"),
         }
+    }
+
+    /// Puts together an interactive rebase onto `onto`, in the centre.
+    fn plan(&mut self, onto: String) -> Option<&Plan> {
+        match self.repo.git.rebase_plan(&onto) {
+            Ok(listed) if listed.is_empty() => self.error = Some(format!("Nothing to rebase onto {onto:.7}")),
+            Ok(listed) => {
+                (self.open_file, self.merge) = (None, None);
+                return Some(self.plan.insert(Plan::new(onto, listed)));
+            }
+            Err(error) => self.error = Some(error.to_string()),
+        }
+        None
+    }
+
+    /// Puts together an interactive rebase onto the parent of `oldest`, and gives the rows of
+    /// `ids` in it: only when it takes them all along.
+    fn plan_from(&mut self, oldest: ObjectId, ids: &[ObjectId]) -> Option<Vec<usize>> {
+        let history = &self.snapshot.history;
+        let parents: Vec<_> = history.row(oldest).into_iter().flat_map(|row| history.graph.parents(row)).collect();
+        // The first commit has nothing to rebase onto, and a rebase leaves out merges.
+        let onto = match parents[..] {
+            [parent] => Some(history.ids[parent].to_string()),
+            _ => None,
+        };
+        let rows = onto
+            .and_then(|onto| self.plan(onto))
+            .and_then(|plan| ids.iter().map(|&id| plan.steps.iter().position(|step| step.1 == id)).collect());
+        if rows.is_none() {
+            self.plan = None;
+            self.error = Some(
+                "Only commits of the current branch can be moved or reworded, apart from merges and the first commit"
+                    .to_owned(),
+            );
+        }
+        rows
     }
 
     fn select(&mut self, selection: Selection) {

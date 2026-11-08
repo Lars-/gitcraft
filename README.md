@@ -52,7 +52,8 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
 - **Commits from the graph**: check out, cherry-pick, revert, reset (soft, mixed, hard), copy the SHA.
 - **Interactive rebase**: right-click a commit to rebase onto it, and put the commits after it in
   a new order (with the arrows or by dragging), give them a new message, squash or fix them up
-  into the one below, or drop them, before you start.
+  into the one below, or drop them, before you start. Or drag a commit in the graph onto another
+  to move it to its place, or pick "Reword commit…" from its menu: the rebase opens with that done.
 - **Remotes**: fetch, pull and push, with how far ahead and behind you are. A branch that went its
   own way, after an amend or a rebase, is force pushed with a lease, so nobody else's work is lost.
 - **Stashes**: stash, apply, pop and drop.

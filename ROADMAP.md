@@ -36,22 +36,22 @@ drive it the way a user does, and keeps every benchmark as fast as before.
       first; move them up and down, pick, squash, fix up or drop each, then start
 - [x] Interactive rebase, part 2: reword a commit with a new message, and reorder the list by
       dragging
+- [x] Interactive rebase, part 3: drag a commit in the graph onto another to move it to its place,
+      and reword a commit from its menu; both open the rebase with that done, to start it
 
 ## Next
 
-1. **Interactive rebase, part 3**: reorder by dragging a commit in the graph, and reword a commit
-   from its menu.
-2. **Credentials**: ask for a username, password or passphrase when git needs one.
-3. **Push and pull options**: force push on request, push tags, pick the remote, pull with rebase.
-4. **Remotes**: add, edit and remove.
-5. **Search the graph** by message, author or SHA, and jump to any branch or tag.
-6. **File history and blame.**
-7. **Better diffs**: side by side, word-level changes, syntax colouring, images.
-8. **Keyboard**: shortcuts for everything, and a command palette.
-9. **Settings**: light and dark theme, font size, date format, default pull mode.
-10. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
-    over the network).
-11. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
+1. **Credentials**: ask for a username, password or passphrase when git needs one.
+2. **Push and pull options**: force push on request, push tags, pick the remote, pull with rebase.
+3. **Remotes**: add, edit and remove.
+4. **Search the graph** by message, author or SHA, and jump to any branch or tag.
+5. **File history and blame.**
+6. **Better diffs**: side by side, word-level changes, syntax colouring, images.
+7. **Keyboard**: shortcuts for everything, and a command palette.
+8. **Settings**: light and dark theme, font size, date format, default pull mode.
+9. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
+   over the network).
+10. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
     (AppImage, .deb, Flatpak), signed where the platform expects it.
 
 ## After 1.0

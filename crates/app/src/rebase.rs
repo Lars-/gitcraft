@@ -94,7 +94,13 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                 && let Some(message) = plan.messages.get_mut(&id)
             {
                 let field = TextEdit::multiline(message).desired_rows(3).desired_width(f32::INFINITY);
-                left |= ui.add(field).accessible_name(format!("New message of {summary}")).lost_focus();
+                let field = ui.add(field).accessible_name(format!("New message of {summary}"));
+                if plan.focus == Some(id) {
+                    plan.focus = None;
+                    field.request_focus();
+                    field.scroll_to_me(Some(egui::Align::Center));
+                }
+                left |= field.lost_focus();
             }
         }
         left
