@@ -1,10 +1,12 @@
-//! The commit graph: one row per commit, with its branches, lanes and message.
+//! The commit graph: one row per commit, with its branches, lanes and message. A commit dragged
+//! onto another moves to its place, in an interactive rebase.
 
 use eframe::egui::epaint::CubicBezierShape;
-use eframe::egui::{self, Color32, FontId, Key, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2};
+use eframe::egui::{self, Color32, FontId, Key, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, Ui, Vec2};
+use gitcraft_core::ObjectId;
 use gitcraft_core::git::{Op, ResetMode};
 use gitcraft_core::graph::{Half, Row};
-use gitcraft_core::repo::{Label as Ref, RefKind};
+use gitcraft_core::repo::{History, Label as Ref, RefKind};
 
 use crate::app::{Action, Confirm, Prompt, Selection, Workspace};
 use crate::theme;
@@ -57,7 +59,8 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
         let rows = history.graph.rows(first..range.end.saturating_sub(wip));
         let head_lane = history.head.and_then(|head| history.graph.rows(head..head + 1).pop()).map_or(0, |r| r.lane);
         for i in range {
-            let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());
+            let (rect, response) =
+                ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click_and_drag());
             let painter = ui.painter_at(rect);
             if selected == Some(i) {
                 painter.rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
@@ -94,6 +97,10 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
             match ws.commits.get(&ws.repo, id) {
                 Ok(commit) => {
                     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, commit.summary()));
+                    if response.dragged() {
+                        let tooltip = egui::Tooltip::for_widget(&response).at_pointer();
+                        tooltip.show(|ui| ui.label(format!("Move {}", commit.summary())));
+                    }
                     put(ui, text, commit.summary());
                     if author_width > 0.0 {
                         let author =
@@ -108,14 +115,34 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
             if response.clicked() {
                 actions.push(Action::Select(Selection::Commit(id)));
             }
+            drag_and_drop(ui, &response, history, (index, id), actions);
             if response.double_clicked()
                 && let Some(branch) = labels.iter().find(|l| l.kind == RefKind::Local)
             {
                 actions.push(Action::Run(Op::Checkout(branch.name.clone())));
             }
-            response.context_menu(|ui| commit_menu(ui, &id.to_string(), labels, current.as_deref(), actions));
+            response.context_menu(|ui| commit_menu(ui, id, labels, current.as_deref(), actions));
         }
     });
+}
+
+/// Lets the commit `id` in row `index` be dragged, and takes a commit dropped onto it to its place,
+/// with a line on the side where it lands.
+fn drag_and_drop(
+    ui: &Ui,
+    row: &Response,
+    history: &History,
+    (index, id): (usize, ObjectId),
+    actions: &mut Vec<Action>,
+) {
+    row.dnd_set_drag_payload(id);
+    if let Some(from) = row.dnd_hover_payload::<ObjectId>().filter(|from| **from != id) {
+        let y = if history.row(*from) < Some(index) { row.rect.bottom() } else { row.rect.top() };
+        ui.painter().hline(row.rect.x_range(), y, ui.visuals().selection.stroke);
+    }
+    if let Some(from) = row.dnd_release_payload::<ObjectId>().filter(|from| **from != id) {
+        actions.push(Action::Move(*from, id));
+    }
 }
 
 /// Draws one line of text in `rect`, cut off with an ellipsis when it does not fit.
@@ -187,7 +214,8 @@ fn paint_labels(painter: &Painter, rect: Rect, labels: &[Ref], colour: Color32, 
 }
 
 /// The right-click menu of a commit.
-pub fn commit_menu(ui: &mut Ui, sha: &str, labels: &[Ref], current: Option<&str>, actions: &mut Vec<Action>) {
+pub fn commit_menu(ui: &mut Ui, id: ObjectId, labels: &[Ref], current: Option<&str>, actions: &mut Vec<Action>) {
+    let sha = &id.to_string();
     let mut item = |ui: &mut Ui, text: &str, action: Action| {
         if ui.button(text).clicked() {
             actions.push(action);
@@ -203,6 +231,7 @@ pub fn commit_menu(ui: &mut Ui, sha: &str, labels: &[Ref], current: Option<&str>
     item(ui, "Create tag here…", Action::Prompt(Prompt::Tag { at: sha.to_owned() }));
     item(ui, "Cherry-pick commit", Action::Run(Op::CherryPick(sha.to_owned())));
     item(ui, "Revert commit", Action::Run(Op::Revert(sha.to_owned())));
+    item(ui, "Reword commit…", Action::Reword(id));
     item(ui, "Interactive rebase onto this commit…", Action::Plan(sha.to_owned()));
     ui.menu_button("Reset current branch to this commit", |ui| {
         for (text, mode) in [
