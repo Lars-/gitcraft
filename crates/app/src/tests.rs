@@ -868,19 +868,23 @@ fn drag_a_commit_onto_another_in_the_graph_to_move_it_there() {
     harness.get_by_label_contains("Only commits of the current branch can be moved or reworded");
     assert!(harness.state().workspace().unwrap().plan.is_none());
 
-    // Older onto newer and newer onto older: each takes the other's place, once started.
+    // Older onto newer and newer onto older: each takes the other's place, in the list to start.
     drag_onto(&mut harness, "Add one", "Add two");
     harness.get_by_label(&format!("Interactive rebase onto {}", &rev(&git, "HEAD~3")[..7]));
+    let order = |harness: &Harness<'_, App>| {
+        let plan = harness.state().workspace().unwrap().plan.as_ref().unwrap();
+        plan.steps.iter().map(|(_, id)| format!("{id}\n")).collect::<Vec<_>>()
+    };
+    assert_eq!(order(&harness), ["HEAD", "HEAD~2", "HEAD~1"].map(|at| rev(&git, at)));
+    harness.get_by_label("Cancel").click();
+    settle(&mut harness);
+    drag_onto(&mut harness, "Add three", "Add one");
+    assert_eq!(order(&harness), ["HEAD~1", "HEAD~2", "HEAD"].map(|at| rev(&git, at)));
     assert_eq!(log(&git), "Add three\nAdd two\nAdd one\nFirst commit\n", "nothing happens before the start");
     harness.get_by_label("Start rebase").click();
     settle(&mut harness);
-    assert_eq!(log(&git), "Add three\nAdd one\nAdd two\nFirst commit\n");
-    drag_onto(&mut harness, "Add three", "Add one");
-    harness.get_by_label(&format!("Interactive rebase onto {}", &rev(&git, "HEAD~2")[..7]));
-    harness.get_by_label("Start rebase").click();
-    settle(&mut harness);
-    assert_eq!(log(&git), "Add one\nAdd three\nAdd two\nFirst commit\n");
     assert_eq!(harness.state().workspace().unwrap().error, None);
+    assert_eq!(log(&git), "Add two\nAdd one\nAdd three\nFirst commit\n");
 }
 
 #[test]
