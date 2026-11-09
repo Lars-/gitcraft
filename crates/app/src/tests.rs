@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, Key, Modifiers, Role};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
+use gitcraft_core::askpass;
 use gitcraft_core::git::{Git, Op};
 use tempfile::TempDir;
 
@@ -178,6 +179,38 @@ fn git_s_progress_lines_fill_the_progress_bar() {
     assert_eq!(percent("Receiving objects:  50% (500/1000), 1.20 MiB | 2.00 MiB/s"), Some(0.5));
     assert_eq!(percent("remote: Counting objects: 100% (9/9), done."), Some(1.0));
     assert_eq!(percent("Cloning into 'repo'..."), None);
+}
+
+#[test]
+fn what_git_asks_is_asked_in_a_dialog_and_answered() {
+    let (address, questions) = askpass::listen(|| {}).unwrap();
+    let mut app = App::restore(|_| None, None);
+    app.questions = Some(questions);
+    let mut harness = run(app);
+    let ask = |prompt: &'static str| {
+        let address = address.clone();
+        std::thread::spawn(move || askpass::ask(&address, prompt).unwrap())
+    };
+
+    let username = ask("Username for 'https://example.com': ");
+    wait_until(&mut harness, "the question", |h| h.query_by_label_contains("Username for").is_some());
+    let password = ask("Password for 'https://tess@example.com': ");
+    harness.get_by_label("Username for 'https://example.com':").type_text("tess");
+    harness.run();
+    harness.key_press(Key::Enter);
+    harness.run();
+    assert_eq!(username.join().unwrap().as_deref(), Some("tess"));
+
+    // The next question waited its turn; a password is hidden, and Escape answers nothing.
+    wait_until(&mut harness, "the next question", |h| h.query_by_label_contains("Password for").is_some());
+    let field = harness.get_by_label("Password for 'https://tess@example.com':");
+    assert_eq!(field.accesskit_node().role(), Role::PasswordInput);
+    field.type_text("secret");
+    harness.run();
+    harness.key_press(Key::Escape);
+    harness.run();
+    assert_eq!(password.join().unwrap(), None);
+    assert!(harness.query_by_label_contains("Password for").is_none());
 }
 
 #[test]

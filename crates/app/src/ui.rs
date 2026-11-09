@@ -1,8 +1,10 @@
 //! The window: the start screen, or a repository with its toolbar and panels.
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Receiver;
 
-use eframe::egui::{self, Button, Key, Role, Ui, WidgetInfo};
+use eframe::egui::{self, Button, Key, Role, TextEdit, Ui, WidgetInfo};
+use gitcraft_core::askpass::Question;
 use gitcraft_core::git::Op;
 use gitcraft_core::repo::{RefKind, Repo};
 use gitcraft_core::status::Change;
@@ -27,6 +29,10 @@ pub struct App {
     pub recent: Vec<PathBuf>,
     /// The start screen, shown while no tab is.
     pub start: Start,
+    /// What git asks while it runs, such as a password.
+    pub questions: Option<Receiver<Question>>,
+    /// The question on screen, with the answer so far.
+    question: Option<(Question, String)>,
     focused: bool,
     pending: Vec<PathBuf>,
 }
@@ -98,6 +104,11 @@ impl App {
         for path in std::mem::take(&mut self.pending) {
             self.open(&ctx, &path);
         }
+        // A question comes first, whichever tab or clone it is for: git waits for it.
+        if self.question.is_none() {
+            self.question = self.questions.as_ref().and_then(|q| q.try_recv().ok()).map(|q| (q, String::new()));
+        }
+        question(&ctx, &mut self.question);
         self.tabs.iter_mut().for_each(|ws| ws.poll(&ctx));
         // A tab out of sight reloads when it is shown.
         if let Some(ws) = self.workspace_mut() {
@@ -286,6 +297,31 @@ fn underway(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
             }
         }
     });
+}
+
+/// Asks the user what git asks, and answers git.
+fn question(ctx: &egui::Context, asked: &mut Option<(Question, String)>) {
+    let Some((question, answer)) = asked else { return };
+    let mut answered = None;
+    let response = egui::Modal::new(egui::Id::unique("question")).show(ctx, |ui| {
+        let label = ui.strong(question.prompt.trim());
+        let field = TextEdit::singleline(answer).password(question.secret()).hint_text("answer").desired_width(380.0);
+        ui.add(field).labelled_by(label.id).request_focus();
+        // The Enter that answers is not for a dialog behind this one.
+        let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
+        ui.horizontal(|ui| {
+            if ui.button("OK").clicked() || enter {
+                answered = Some(true);
+            }
+            if ui.button("Cancel").clicked() {
+                answered = Some(false);
+            }
+        });
+    });
+    if let Some(ok) = answered.or(response.should_close().then_some(false)) {
+        let (question, answer) = asked.take().expect("a question is on screen");
+        question.answer(ok.then_some(answer.as_str()));
+    }
 }
 
 fn prompt(ctx: &egui::Context, ws: &mut Workspace, actions: &mut Vec<Action>) {

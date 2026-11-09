@@ -56,6 +56,9 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
   to move it to its place, or pick "Reword commit…" from its menu: the rebase opens with that done.
 - **Remotes**: fetch, pull and push, with how far ahead and behind you are. A branch that went its
   own way, after an amend or a rebase, is force pushed with a lease, so nobody else's work is lost.
+- **Passwords**: when git or ssh needs a username, a password or the passphrase of your key, for a
+  clone, a fetch, a push or a signed commit, GitCraft asks for it in a dialog. With a credential
+  helper set up, git remembers what you type, as it does on the command line.
 - **Stashes**: stash, apply, pop and drop.
 - **Conflicts**: when a merge, rebase, cherry-pick or revert stops at a conflict, a bar says so and
   counts the conflicted files. Open a conflicted file to go through it conflict by conflict, with

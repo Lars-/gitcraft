@@ -105,7 +105,8 @@ impl Git {
             .args(args)
             // A graphical client must never wait for a terminal or an editor.
             .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_EDITOR", "true");
+            .env("GIT_EDITOR", "true")
+            .envs(crate::askpass::env().iter().map(|(key, value)| (key, value)));
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;

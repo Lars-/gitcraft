@@ -5,6 +5,7 @@ use std::fs;
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
+use gitcraft_core::askpass;
 use gitcraft_core::conflict::{Conflicts, Pick};
 use gitcraft_core::diff::{self, FileDiff, LineKind, Source};
 use gitcraft_core::git::{self, Git, Op, ResetMode, Step};
@@ -710,4 +711,26 @@ fn ignored_files_and_reading_are_not_noticed() {
     assert!(noticed(&changes, SOON), "the ignore rules changed");
     write(&git, "target/build.log", "done\n");
     assert!(noticed(&changes, SOON), "no longer ignored");
+}
+
+#[test]
+fn a_question_gets_its_answer_or_none_and_needs_the_token() {
+    let (address, questions) = askpass::listen(|| {}).unwrap();
+    for (prompt, secret, answer) in [
+        ("Username for 'https://example.com': ", false, Some("tess")),
+        ("Password for 'https://tess@example.com': ", true, Some("")),
+        ("Enter passphrase for key '/home/tess/.ssh/id_ed25519': ", true, None),
+        ("Are you sure you want to continue connecting (yes/no/[fingerprint])? ", false, Some("yes")),
+    ] {
+        let address = address.clone();
+        let asking = std::thread::spawn(move || askpass::ask(&address, prompt).unwrap());
+        let question = questions.recv_timeout(SOON).unwrap();
+        assert_eq!((question.prompt.as_str(), question.secret()), (prompt, secret));
+        question.answer(answer);
+        assert_eq!(asking.join().unwrap().as_deref(), answer);
+    }
+
+    let (at, _token) = address.split_once('/').unwrap();
+    assert_eq!(askpass::ask(&format!("{at}/guessed"), "Password: ").unwrap(), None);
+    assert!(questions.recv_timeout(QUIET).is_err(), "asked without the token");
 }
