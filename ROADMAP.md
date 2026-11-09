@@ -38,21 +38,22 @@ drive it the way a user does, and keeps every benchmark as fast as before.
       dragging
 - [x] Interactive rebase, part 3: drag a commit in the graph onto another to move it to its place,
       and reword a commit from its menu; both open the rebase with that done, to start it
+- [x] Credentials: ask for a username, password or passphrase when git or ssh needs one, and
+      whether to trust a host ssh does not know yet
 
 ## Next
 
-1. **Credentials**: ask for a username, password or passphrase when git needs one.
-2. **Push and pull options**: force push on request, push tags, pick the remote, pull with rebase.
-3. **Remotes**: add, edit and remove.
-4. **Search the graph** by message, author or SHA, and jump to any branch or tag.
-5. **File history and blame.**
-6. **Better diffs**: side by side, word-level changes, syntax colouring, images.
-7. **Keyboard**: shortcuts for everything, and a command palette.
-8. **Settings**: light and dark theme, font size, date format, default pull mode.
-9. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
+1. **Push and pull options**: force push on request, push tags, pick the remote, pull with rebase.
+2. **Remotes**: add, edit and remove.
+3. **Search the graph** by message, author or SHA, and jump to any branch or tag.
+4. **File history and blame.**
+5. **Better diffs**: side by side, word-level changes, syntax colouring, images.
+6. **Keyboard**: shortcuts for everything, and a command palette.
+7. **Settings**: light and dark theme, font size, date format, default pull mode.
+8. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
    over the network).
-10. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
-    (AppImage, .deb, Flatpak), signed where the platform expects it.
+9. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
+   (AppImage, .deb, Flatpak), signed where the platform expects it.
 
 ## After 1.0
 

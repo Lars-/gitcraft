@@ -62,6 +62,9 @@ There are two crates.
 - `watch.rs` watches the working tree and the refs, and says when something changed that git
   does not ignore. Reading should not write (`git status` runs without optional locks): a write
   wakes the watcher again.
+- `askpass.rs` puts what git asks while it runs, such as a password, to the user. git and ssh
+  run GitCraft itself as the program to ask through, which hands the question to the window
+  that ran git over the loopback interface.
 - `undo.rs` reads the reflog of `HEAD` to tell what undo and redo do: a checkout or a reset to
   where an action started or ended. Its own lines in the reflog start with `undo` or `redo`, so
   the next undo goes one step further back.
@@ -82,7 +85,8 @@ Its tests run against real repositories made with `git` in a temporary folder
 
 The app's tests (`crates/app/src/tests.rs`) drive the whole window the way a user does, through
 the accessibility tree with [egui_kittest](https://crates.io/crates/egui_kittest). That also keeps
-GitCraft usable with a screen reader: give every new control an accessible name.
+GitCraft usable with a screen reader: give every new control an accessible name. The tests in
+`crates/app/tests` run `git` against the built `gitcraft`, to see it ask through the window.
 
 ## Reporting bugs and asking for features
 
