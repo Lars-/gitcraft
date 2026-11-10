@@ -421,7 +421,10 @@ fn a_failing_operation_shows_git_s_message() {
     let mut harness = app(Some(git.dir()));
     harness.get_by_label("Pull").click();
     settle(&mut harness);
-    harness.get_by_label("Dismiss");
+    // A reload after a change outside leaves the message to be read.
+    fs::write(git.dir().join("file.txt"), "changed").unwrap();
+    wait_until(&mut harness, "the change", |h| !h.state().workspace().unwrap().snapshot.status.is_clean());
+    settle(&mut harness);
     harness.get_by_label("Dismiss").click();
     harness.run();
     assert!(harness.query_by_label("Dismiss").is_none());
