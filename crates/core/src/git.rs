@@ -56,6 +56,11 @@ impl Git {
         checked(&args, &output(command, op.input())?, &[0])
     }
 
+    /// The names of the remotes.
+    pub fn remotes(&self) -> Result<Vec<String>> {
+        Ok(self.run(&["remote"])?.lines().map(str::to_owned).collect())
+    }
+
     /// How many commits of `branch` no other branch, remote branch or tag has: deleting it loses
     /// them.
     pub fn only_on(&self, branch: &str) -> Result<usize> {
@@ -363,11 +368,15 @@ pub enum Op {
     },
     /// Push the current branch.
     Push {
-        /// Set this remote as the upstream first.
-        upstream: Option<String>,
-        /// Overwrite the remote branch, unless someone else pushed to it.
+        /// The remote to push to, as a branch of the same name, or `None` for the upstream.
+        remote: Option<String>,
+        /// Make the branch on that remote the upstream.
+        track: bool,
+        /// Overwrite the remote branch, unless it changed since the last fetch.
         force: bool,
     },
+    /// Push every tag to a remote.
+    PushTags(String),
     /// Undo or redo an action with a checkout or a reset (see [`crate::undo`]).
     Undo {
         /// What its line in the reflog starts with: `undo` or `redo`, and the reset mode.
@@ -421,13 +430,12 @@ impl Op {
             Self::StashDrop(_) => (&["stash", "drop", "-q"], vec![&stash]),
             Self::Fetch => (&["fetch", "--all", "--prune", "-q"], vec![]),
             Self::Pull { rebase } => (&["pull", "-q"], vec![if *rebase { "--rebase" } else { "--no-rebase" }]),
-            Self::Push { upstream, force } => {
-                let mut rest = flag(*force, "--force-with-lease");
-                if let Some(remote) = upstream {
-                    rest.extend(["-u", remote, "HEAD"]);
-                }
+            Self::Push { remote, track, force } => {
+                let mut rest = [flag(*force, "--force-with-lease"), flag(*track, "-u")].concat();
+                rest.extend(remote.iter().flat_map(|remote| [remote.as_str(), "HEAD"]));
                 (&["push", "-q"], rest)
             }
+            Self::PushTags(remote) => (&["push", "-q", "--tags"], vec![remote]),
             Self::Undo { op, .. } => return op.args(),
         };
         command.iter().copied().chain(rest).map(str::to_owned).collect()

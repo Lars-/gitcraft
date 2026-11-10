@@ -122,6 +122,8 @@ pub struct Snapshot {
     pub status: Status,
     /// The stash messages, newest first.
     pub stashes: Vec<String>,
+    /// The names of the remotes.
+    pub remotes: Vec<String>,
     /// What undo and redo would do.
     pub undo: Undo,
     /// What stopped half way, if anything.
@@ -135,6 +137,7 @@ impl Snapshot {
             history: repo.history()?,
             undo: undo::read(repo, &status)?,
             stashes: status::stashes(&repo.git)?,
+            remotes: repo.git.remotes()?,
             underway: repo.underway(),
             status,
         })

@@ -40,19 +40,20 @@ drive it the way a user does, and keeps every benchmark as fast as before.
       and reword a commit from its menu; both open the rebase with that done, to start it
 - [x] Credentials: ask for a username, password or passphrase when git or ssh needs one, and
       whether to trust a host ssh does not know yet
+- [x] Push and pull options: pull with rebase, and push to any remote, force push or push tags,
+      from the right-click menus of Pull and Push
 
 ## Next
 
-1. **Push and pull options**: force push on request, push tags, pick the remote, pull with rebase.
-2. **Remotes**: add, edit and remove.
-3. **Search the graph** by message, author or SHA, and jump to any branch or tag.
-4. **File history and blame.**
-5. **Better diffs**: side by side, word-level changes, syntax colouring, images.
-6. **Keyboard**: shortcuts for everything, and a command palette.
-7. **Settings**: light and dark theme, font size, date format, default pull mode.
-8. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
+1. **Remotes**: add, edit and remove.
+2. **Search the graph** by message, author or SHA, and jump to any branch or tag.
+3. **File history and blame.**
+4. **Better diffs**: side by side, word-level changes, syntax colouring, images.
+5. **Keyboard**: shortcuts for everything, and a command palette.
+6. **Settings**: light and dark theme, font size, date format, default pull mode.
+7. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
    over the network).
-9. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
+8. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
    (AppImage, .deb, Flatpak), signed where the platform expects it.
 
 ## After 1.0

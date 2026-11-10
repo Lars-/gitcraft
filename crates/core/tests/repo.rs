@@ -583,13 +583,13 @@ fn push_fetch_and_pull_through_a_remote() {
     Git::new(remote.path()).run(&["init", "-q", "--bare", "-b", "main"]).unwrap();
     git.run(&["remote", "add", "origin", remote.path().to_str().unwrap()]).unwrap();
     commit(&git, "a.txt", "a\n", "Root");
-    git.apply(&Op::Push { upstream: Some("origin".into()), force: false }).unwrap();
+    git.apply(&Op::Push { remote: Some("origin".into()), track: true, force: false }).unwrap();
     assert_eq!(Status::read(&git).unwrap().upstream.as_deref(), Some("origin/main"));
 
     let other_dir = tempfile::tempdir().unwrap();
     let other = init(Git::new(other_dir.path()), &["clone", "-q", remote.path().to_str().unwrap(), "."]);
     commit(&other, "b.txt", "b\n", "From elsewhere");
-    other.apply(&Op::Push { upstream: None, force: false }).unwrap();
+    other.apply(&Op::Push { remote: None, track: false, force: false }).unwrap();
 
     git.apply(&Op::Fetch).unwrap();
     assert_eq!(Status::read(&git).unwrap().behind, 1);
@@ -602,14 +602,49 @@ fn push_fetch_and_pull_through_a_remote() {
     git.apply(&Op::Commit { message: "Amended".into(), amend: true }).unwrap();
     let status = Status::read(&git).unwrap();
     assert_eq!((status.ahead, status.behind), (1, 1));
-    assert!(git.apply(&Op::Push { upstream: None, force: false }).is_err());
-    git.apply(&Op::Push { upstream: None, force: true }).unwrap();
+    assert!(git.apply(&Op::Push { remote: None, track: false, force: false }).is_err());
+    git.apply(&Op::Push { remote: None, track: false, force: true }).unwrap();
     assert_eq!(Git::new(remote.path()).run(&["rev-parse", "main"]).unwrap(), git.run(&["rev-parse", "HEAD"]).unwrap());
 
     // The lease refuses to overwrite the remote branch once it changed since the last fetch.
     Git::new(remote.path()).run(&["update-ref", "refs/heads/main", "main~1"]).unwrap();
     git.apply(&Op::Commit { message: "Amended again".into(), amend: true }).unwrap();
-    assert!(git.apply(&Op::Push { upstream: None, force: true }).is_err());
+    assert!(git.apply(&Op::Push { remote: None, track: false, force: true }).is_err());
+}
+
+#[test]
+fn pull_with_rebase_push_to_another_remote_and_push_tags() {
+    let (_dir, git) = repo();
+    let dirs = [(); 2].map(|()| tempfile::tempdir().unwrap());
+    let [origin, fork] = [0, 1].map(|i| Git::new(dirs[i].path()));
+    for (name, remote) in [("origin", &origin), ("fork", &fork)] {
+        remote.run(&["init", "-q", "--bare", "-b", "main"]).unwrap();
+        git.run(&["remote", "add", name, remote.dir().to_str().unwrap()]).unwrap();
+    }
+    assert_eq!(git.remotes().unwrap(), ["fork", "origin"]);
+    let root = commit(&git, "a.txt", "a\n", "Root");
+    git.apply(&Op::Push { remote: Some("origin".into()), track: true, force: false }).unwrap();
+
+    // Someone else pushed a commit while this one was made: a pull with rebase puts it on top.
+    commit(&git, "b.txt", "b\n", "From elsewhere");
+    git.apply(&Op::Push { remote: None, track: false, force: false }).unwrap();
+    git.apply(&Op::Reset { to: root, mode: ResetMode::Hard }).unwrap();
+    commit(&git, "c.txt", "c\n", "Here");
+    git.apply(&Op::Pull { rebase: true }).unwrap();
+    assert_eq!(git.run(&["log", "--format=%s"]).unwrap(), "Here\nFrom elsewhere\nRoot\n");
+
+    // Pushing, and force pushing, to another remote leaves the upstream where it is.
+    git.apply(&Op::Push { remote: Some("fork".into()), track: false, force: false }).unwrap();
+    git.apply(&Op::Commit { message: "Here, amended".into(), amend: true }).unwrap();
+    git.apply(&Op::Push { remote: Some("fork".into()), track: false, force: true }).unwrap();
+    assert_eq!(fork.run(&["rev-parse", "main"]).unwrap().trim(), head(&git));
+    let status = Status::read(&git).unwrap();
+    assert_eq!((status.upstream.as_deref(), status.ahead, status.behind), (Some("origin/main"), 1, 0));
+
+    git.run(&["tag", "v1"]).unwrap();
+    git.apply(&Op::PushTags("fork".into())).unwrap();
+    assert_eq!(fork.run(&["tag"]).unwrap(), "v1\n");
+    assert_eq!(origin.run(&["tag"]).unwrap(), "");
 }
 
 #[test]

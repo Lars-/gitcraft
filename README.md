@@ -56,6 +56,8 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
   to move it to its place, or pick "Reword commit…" from its menu: the rebase opens with that done.
 - **Remotes**: fetch, pull and push, with how far ahead and behind you are. A branch that went its
   own way, after an amend or a rebase, is force pushed with a lease, so nobody else's work is lost.
+  Right-click Pull to pull with rebase, or Push to push to another remote, force push or push your
+  tags.
 - **Passwords**: when git or ssh needs a username, a password or the passphrase of your key, for a
   clone, a fetch, a push or a signed commit, GitCraft asks for it in a dialog. With a credential
   helper set up, git remembers what you type, as it does on the command line.
