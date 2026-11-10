@@ -552,7 +552,10 @@ impl Workspace {
             self.description.clear();
             self.amend = false;
         }
-        self.error = failed;
+        // A reload by itself, as after a change outside, leaves what went wrong on screen.
+        if op.is_some() || failed.is_some() {
+            self.error = failed;
+        }
         match snapshot {
             Some(Ok(snapshot)) => self.snapshot = snapshot,
             Some(Err(error)) => self.error = Some(error.to_string()),
