@@ -6,7 +6,7 @@ use std::sync::mpsc::Receiver;
 use eframe::egui::{self, Button, Key, Role, TextEdit, Ui, WidgetInfo};
 use gitcraft_core::askpass::Question;
 use gitcraft_core::git::Op;
-use gitcraft_core::repo::{RefKind, Repo};
+use gitcraft_core::repo::Repo;
 use gitcraft_core::status::Change;
 
 use crate::app::{Action, Confirm, Selection, Workspace};
@@ -232,38 +232,69 @@ fn toolbar(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
             }
         }
         let count = |label: &str, n: u32| if n > 0 { format!("{label}  {n}") } else { label.to_owned() };
-        let remote = ws.snapshot.history.labels.values().flatten().find(|l| l.kind == RefKind::Remote);
-        let remote = remote.and_then(|l| l.name.split_once('/')).map_or("origin", |(remote, _)| remote);
         let at = match ws.selection {
             Some(Selection::Commit(id)) => id.to_string(),
             _ => "HEAD".to_owned(),
         };
-        let push = match (&status.branch, &status.upstream) {
+        let remotes = &ws.snapshot.remotes;
+        let (branch, track) = (status.branch.as_deref().unwrap_or("HEAD"), status.upstream.is_none());
+        let push = match &status.upstream {
             // A branch that went its own way since the last push only gets there by force.
-            (Some(branch), Some(upstream)) if status.ahead > 0 && status.behind > 0 => {
+            Some(upstream) if status.ahead > 0 && status.behind > 0 => {
                 let lost = theme::count(status.behind as usize, "commit");
                 let question =
                     format!("Force push {branch}, throwing away the {lost} on {upstream} that it does not have?");
-                Action::Confirm(Confirm { question, verb: "Force push", op: Op::Push { upstream: None, force: true } })
+                let op = Op::Push { remote: None, track: false, force: true };
+                Action::Confirm(Confirm { question, verb: "Force push", op })
             }
-            _ => Action::Run(Op::Push { upstream: status.upstream.is_none().then(|| remote.to_owned()), force: false }),
+            _ => {
+                // Like git, a branch without an upstream goes to the only remote, or else to origin.
+                let remote = match &remotes[..] {
+                    [only] => only.as_str(),
+                    _ => "origin",
+                };
+                Action::Run(Op::Push { remote: track.then(|| remote.to_owned()), track, force: false })
+            }
         };
+        let pull_menu = [("Pull with merge", false), ("Pull with rebase", true)]
+            .map(|(text, rebase)| (text.to_owned(), Action::Run(Op::Pull { rebase })));
+        let mut push_menu = Vec::new();
+        for remote in remotes {
+            let push = |force| Op::Push { remote: Some(remote.clone()), track, force };
+            let question =
+                format!("Force push {branch} to {remote}, throwing away what it has there that {branch} does not?");
+            push_menu.extend([
+                (format!("Push to {remote}"), Action::Run(push(false))),
+                (
+                    format!("Force push to {remote}…"),
+                    Action::Confirm(Confirm { question, verb: "Force push", op: push(true) }),
+                ),
+                (format!("Push tags to {remote}"), Action::Run(Op::PushTags(remote.clone()))),
+            ]);
+        }
         let buttons = [
-            ("Fetch", true, Action::Run(Op::Fetch)),
-            (&count("Pull", status.behind), true, Action::Run(Op::Pull { rebase: false })),
-            (&count("Push", status.ahead), status.branch.is_some(), push),
-            ("Branch", true, Action::Prompt(crate::app::Prompt::Branch { at })),
-            (
-                "Stash",
-                !status.is_clean(),
-                Action::Run(Op::Stash(format!("WIP on {}", status.branch.as_deref().unwrap_or("HEAD")))),
-            ),
-            ("Pop", !ws.snapshot.stashes.is_empty(), Action::Run(Op::StashPop(0))),
-            ("Refresh", true, Action::Refresh),
+            ("Fetch", true, Action::Run(Op::Fetch), Vec::new()),
+            (&count("Pull", status.behind), true, Action::Run(Op::Pull { rebase: false }), pull_menu.into()),
+            (&count("Push", status.ahead), status.branch.is_some(), push, push_menu),
+            ("Branch", true, Action::Prompt(crate::app::Prompt::Branch { at }), Vec::new()),
+            ("Stash", !status.is_clean(), Action::Run(Op::Stash(format!("WIP on {branch}"))), Vec::new()),
+            ("Pop", !ws.snapshot.stashes.is_empty(), Action::Run(Op::StashPop(0)), Vec::new()),
+            ("Refresh", true, Action::Refresh, Vec::new()),
         ];
-        for (label, enabled, action) in buttons {
-            if ui.add_enabled(idle && enabled, Button::new(label)).clicked() {
+        for (label, enabled, action, menu) in buttons {
+            let button = ui.add_enabled(idle && enabled, Button::new(label));
+            if button.clicked() {
                 actions.push(action);
+            }
+            if !menu.is_empty() {
+                button.on_hover_text("Right-click for more").context_menu(|ui| {
+                    for (text, action) in menu {
+                        if ui.button(text).clicked() {
+                            actions.push(action);
+                            ui.close();
+                        }
+                    }
+                });
             }
         }
         if let Some(busy) = ws.busy() {

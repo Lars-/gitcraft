@@ -515,8 +515,13 @@ fn tabs_open_again_on_the_next_run() {
 
 /// Picks `path` from the right-click menu of the widget labelled `on`, one item per step.
 fn menu(harness: &mut Harness<'_, App>, on: &str, path: &[&str]) {
-    harness.get_by_label(on).click_secondary();
-    settle(harness);
+    let start = Instant::now();
+    // A reload the watcher starts in the frame of the click turns the toolbar off for that click.
+    while harness.query_by_label(path[0]).is_none() {
+        assert!(start.elapsed() < Duration::from_secs(10), "the menu of {on} never opened");
+        harness.get_by_label(on).click_secondary();
+        settle(harness);
+    }
     for item in path {
         harness.get_by_label(item).click();
         settle(harness);
@@ -583,7 +588,7 @@ fn a_branch_that_went_its_own_way_is_force_pushed_once_confirmed() {
     let remote = tempfile::tempdir().unwrap();
     Git::new(remote.path()).run(&["init", "-q", "--bare", "-b", "main"]).unwrap();
     git.run(&["remote", "add", "origin", remote.path().to_str().unwrap()]).unwrap();
-    git.apply(&Op::Push { upstream: Some("origin".into()), force: false }).unwrap();
+    git.apply(&Op::Push { remote: Some("origin".into()), track: true, force: false }).unwrap();
     git.apply(&Op::Commit { message: "Amended".into(), amend: true }).unwrap();
     let pushed = || Git::new(remote.path()).run(&["rev-parse", "main"]).unwrap();
     let before = pushed();
@@ -602,6 +607,42 @@ fn a_branch_that_went_its_own_way_is_force_pushed_once_confirmed() {
     settle(&mut harness);
     assert_eq!(pushed(), rev(&git, "HEAD"));
     assert_eq!(harness.state().workspace().unwrap().error, None);
+}
+
+#[test]
+fn pull_with_rebase_force_push_to_another_remote_and_push_tags() {
+    let (_dir, git) = repo();
+    git.run(&["tag", "v1"]).unwrap();
+    let dirs = [(); 2].map(|()| tempfile::tempdir().unwrap());
+    let [origin, fork] = [0, 1].map(|i| Git::new(dirs[i].path()));
+    for (name, remote) in [("origin", &origin), ("fork", &fork)] {
+        remote.run(&["init", "-q", "--bare", "-b", "main"]).unwrap();
+        git.run(&["remote", "add", name, remote.dir().to_str().unwrap()]).unwrap();
+    }
+    git.apply(&Op::Push { remote: Some("origin".into()), track: true, force: false }).unwrap();
+    // Someone else pushed to origin, and the commit made here meanwhile is on the fork too.
+    add_files(&git, &["theirs"]);
+    git.apply(&Op::Push { remote: None, track: false, force: false }).unwrap();
+    git.run(&["reset", "-q", "--hard", "HEAD~1"]).unwrap();
+    add_files(&git, &["ours"]);
+    git.apply(&Op::Push { remote: Some("fork".into()), track: false, force: false }).unwrap();
+    let mut harness = app(Some(git.dir()));
+
+    menu(&mut harness, "Pull  1", &["Pull with rebase"]);
+    assert_eq!(log(&git), "Add ours\nAdd theirs\nFirst commit\n");
+
+    // The fork has the commit as it was before the rebase: only a force push replaces it.
+    menu(&mut harness, "Push  1", &["Force push to fork…"]);
+    harness.get_by_label("Force push main to fork, throwing away what it has there that main does not?");
+    harness.get_by_label("Force push").click();
+    settle(&mut harness);
+    assert_eq!(fork.run(&["rev-parse", "main"]).unwrap(), rev(&git, "HEAD"));
+
+    menu(&mut harness, "Push  1", &["Push tags to fork"]);
+    assert_eq!(fork.run(&["tag"]).unwrap(), "v1\n");
+    assert_eq!(origin.run(&["tag"]).unwrap(), "");
+    let ws = harness.state().workspace().unwrap();
+    assert_eq!((ws.snapshot.status.upstream.as_deref(), &ws.error), (Some("origin/main"), &None));
 }
 
 #[test]
