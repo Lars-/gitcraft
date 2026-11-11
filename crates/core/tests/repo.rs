@@ -648,12 +648,10 @@ fn pull_with_rebase_push_to_another_remote_and_push_tags() {
     assert_eq!(origin.run(&["tag"]).unwrap(), "");
 }
 
+/// The remote branches, without the `origin/HEAD` that git 2.48 and later make when fetching.
 fn remote_branches(git: &Git) -> Vec<String> {
-    git.run(&["for-each-ref", "--format=%(refname:short)", "refs/remotes"])
-        .unwrap()
-        .lines()
-        .map(str::to_owned)
-        .collect()
+    let refs = git.run(&["for-each-ref", "--format=%(refname:lstrip=2)", "refs/remotes"]).unwrap();
+    refs.lines().filter(|name| !name.ends_with("/HEAD")).map(str::to_owned).collect()
 }
 
 #[test]
