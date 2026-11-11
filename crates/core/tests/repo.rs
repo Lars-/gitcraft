@@ -8,7 +8,7 @@ use std::time::Duration;
 use gitcraft_core::askpass;
 use gitcraft_core::conflict::{Conflicts, Pick};
 use gitcraft_core::diff::{self, FileDiff, LineKind, Source};
-use gitcraft_core::git::{self, Git, Op, ResetMode, Step};
+use gitcraft_core::git::{self, Git, Op, Remote, ResetMode, Step};
 use gitcraft_core::repo::{Label, RefKind, Repo, Underway};
 use gitcraft_core::status::{self, Change, Status};
 use gitcraft_core::undo::{self, Move, Undo};
@@ -621,7 +621,8 @@ fn pull_with_rebase_push_to_another_remote_and_push_tags() {
         remote.run(&["init", "-q", "--bare", "-b", "main"]).unwrap();
         git.run(&["remote", "add", name, remote.dir().to_str().unwrap()]).unwrap();
     }
-    assert_eq!(git.remotes().unwrap(), ["fork", "origin"]);
+    let names: Vec<_> = git.remotes().unwrap().into_iter().map(|remote| remote.name).collect();
+    assert_eq!(names, ["fork", "origin"]);
     let root = commit(&git, "a.txt", "a\n", "Root");
     git.apply(&Op::Push { remote: Some("origin".into()), track: true, force: false }).unwrap();
 
@@ -645,6 +646,50 @@ fn pull_with_rebase_push_to_another_remote_and_push_tags() {
     git.apply(&Op::PushTags("fork".into())).unwrap();
     assert_eq!(fork.run(&["tag"]).unwrap(), "v1\n");
     assert_eq!(origin.run(&["tag"]).unwrap(), "");
+}
+
+/// The remote branches, without the `origin/HEAD` that git 2.48 and later make when fetching.
+fn remote_branches(git: &Git) -> Vec<String> {
+    let refs = git.run(&["for-each-ref", "--format=%(refname:lstrip=2)", "refs/remotes"]).unwrap();
+    refs.lines().filter(|name| !name.ends_with("/HEAD")).map(str::to_owned).collect()
+}
+
+#[test]
+fn add_rename_repoint_and_remove_a_remote() {
+    let (_dir, git) = repo();
+    commit(&git, "a.txt", "a\n", "Root");
+    let dirs = [(); 2].map(|()| tempfile::tempdir().unwrap());
+    let [first, second] = [0, 1].map(|i| dirs[i].path().to_str().unwrap().to_owned());
+    for dir in [&first, &second] {
+        git.run(&["clone", "-q", "--bare", ".", dir]).unwrap();
+    }
+    Git::new(&second).run(&["branch", "other", "main"]).unwrap();
+    let remote = |name: &str, url: &str| Remote { name: name.into(), url: url.into() };
+
+    // A new remote is fetched from at once.
+    git.apply(&Op::AddRemote { name: "origin".into(), url: first.clone() }).unwrap();
+    assert_eq!(git.remotes().unwrap(), [remote("origin", &first)]);
+    assert_eq!(remote_branches(&git), ["origin/main"]);
+    git.run(&["branch", "-q", "--set-upstream-to=origin/main"]).unwrap();
+
+    // Its remote branches and the upstream go along with a new name; a new URL fetches elsewhere.
+    git.apply(&Op::RenameRemote { name: "origin".into(), to: "upstream".into() }).unwrap();
+    git.apply(&Op::SetRemoteUrl { name: "upstream".into(), url: second.clone() }).unwrap();
+    git.apply(&Op::Fetch).unwrap();
+    assert_eq!(git.remotes().unwrap(), [remote("upstream", &second)]);
+    assert_eq!(remote_branches(&git), ["upstream/main", "upstream/other"]);
+    assert_eq!(Status::read(&git).unwrap().upstream.as_deref(), Some("upstream/main"));
+
+    // A remote without a URL is listed too, and git says why it refuses a name.
+    git.run(&["config", "remote.bare.fetch", "+refs/heads/*:refs/remotes/bare/*"]).unwrap();
+    let error = git.apply(&Op::RenameRemote { name: "bare".into(), to: "upstream".into() }).unwrap_err();
+    assert!(error.to_string().contains("already exists"), "{error}");
+    assert_eq!(git.remotes().unwrap(), [remote("bare", ""), remote("upstream", &second)]);
+
+    git.apply(&Op::RemoveRemote("upstream".into())).unwrap();
+    assert_eq!(git.remotes().unwrap(), [remote("bare", "")]);
+    assert_eq!(remote_branches(&git), Vec::<String>::new());
+    assert_eq!(Status::read(&git).unwrap().upstream, None);
 }
 
 #[test]

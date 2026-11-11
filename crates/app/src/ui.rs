@@ -9,7 +9,7 @@ use gitcraft_core::git::Op;
 use gitcraft_core::repo::Repo;
 use gitcraft_core::status::Change;
 
-use crate::app::{Action, Confirm, Selection, Workspace};
+use crate::app::{Action, Confirm, Prompt, Selection, Workspace};
 use crate::start::Start;
 use crate::{details, diff, graph, merge, rebase, sidebar, theme};
 
@@ -250,7 +250,7 @@ fn toolbar(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
             _ => {
                 // Like git, a branch without an upstream goes to the only remote, or else to origin.
                 let remote = match &remotes[..] {
-                    [only] => only.as_str(),
+                    [only] => only.name.as_str(),
                     _ => "origin",
                 };
                 Action::Run(Op::Push { remote: track.then(|| remote.to_owned()), track, force: false })
@@ -259,7 +259,7 @@ fn toolbar(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
         let pull_menu = [("Pull with merge", false), ("Pull with rebase", true)]
             .map(|(text, rebase)| (text.to_owned(), Action::Run(Op::Pull { rebase })));
         let mut push_menu = Vec::new();
-        for remote in remotes {
+        for remote in remotes.iter().map(|remote| &remote.name) {
             let push = |force| Op::Push { remote: Some(remote.clone()), track, force };
             let question =
                 format!("Force push {branch} to {remote}, throwing away what it has there that {branch} does not?");
@@ -276,7 +276,7 @@ fn toolbar(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
             ("Fetch", true, Action::Run(Op::Fetch), Vec::new()),
             (&count("Pull", status.behind), true, Action::Run(Op::Pull { rebase: false }), pull_menu.into()),
             (&count("Push", status.ahead), status.branch.is_some(), push, push_menu),
-            ("Branch", true, Action::Prompt(crate::app::Prompt::Branch { at }), Vec::new()),
+            ("Branch", true, Action::Prompt(Prompt::Branch { at }), Vec::new()),
             ("Stash", !status.is_clean(), Action::Run(Op::Stash(format!("WIP on {branch}"))), Vec::new()),
             ("Pop", !ws.snapshot.stashes.is_empty(), Action::Run(Op::StashPop(0)), Vec::new()),
             ("Refresh", true, Action::Refresh, Vec::new()),
@@ -356,20 +356,33 @@ fn question(ctx: &egui::Context, asked: &mut Option<(Question, String)>) {
 }
 
 fn prompt(ctx: &egui::Context, ws: &mut Workspace, actions: &mut Vec<Action>) {
-    let Some((prompt, name)) = &mut ws.prompt else { return };
+    let Some((prompt, fields)) = &mut ws.prompt else { return };
     let mut done = false;
     let response = egui::Modal::new(egui::Id::unique("prompt")).show(ctx, |ui| {
-        let what = match prompt {
-            crate::app::Prompt::Branch { .. } => "New branch",
-            crate::app::Prompt::Tag { .. } => "New tag",
+        let (what, verb) = match prompt {
+            Prompt::Branch { .. } => ("New branch".to_owned(), "Create"),
+            Prompt::Tag { .. } => ("New tag".to_owned(), "Create"),
+            Prompt::Remote(None) => ("New remote".to_owned(), "Add"),
+            Prompt::Remote(Some(remote)) => (format!("Edit remote {}", remote.name), "Save"),
         };
         ui.strong(what);
-        let field = ui.add(egui::TextEdit::singleline(name).hint_text("name")).on_hover_text("Name");
-        field.request_focus();
+        let [name, url] = fields;
+        let field = ui.add(TextEdit::singleline(name).hint_text("name").desired_width(380.0)).accessible_name("Name");
+        // Ready to type the name.
+        if ui.memory(|m| m.focused().is_none()) {
+            field.request_focus();
+        }
+        // Only a remote has a URL.
+        let remote = matches!(prompt, Prompt::Remote(_));
+        if remote {
+            ui.add(TextEdit::singleline(url).hint_text("URL").desired_width(380.0)).accessible_name("URL");
+        }
         let enter = ui.input(|i| i.key_pressed(Key::Enter));
+        let filled = !name.trim().is_empty() && (!remote || !url.trim().is_empty());
         ui.horizontal(|ui| {
-            if (ui.button("Create").clicked() || enter) && !name.trim().is_empty() {
-                actions.push(Action::Run(prompt.op(name.trim().to_owned())));
+            if (ui.button(verb).clicked() || enter) && filled {
+                let ops = prompt.ops([name, url].map(|field| field.trim().to_owned()));
+                actions.extend(ops.into_iter().map(Action::Run));
                 done = true;
             }
             done |= ui.button("Cancel").clicked();

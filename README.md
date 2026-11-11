@@ -57,7 +57,8 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
 - **Remotes**: fetch, pull and push, with how far ahead and behind you are. A branch that went its
   own way, after an amend or a rebase, is force pushed with a lease, so nobody else's work is lost.
   Right-click Pull to pull with rebase, or Push to push to another remote, force push or push your
-  tags.
+  tags. The sidebar shows each remote with its branches: add one (its branches are fetched at
+  once), or right-click it to give it another name or URL, or to remove it.
 - **Passwords**: when git or ssh needs a username, a password or the passphrase of your key, for a
   clone, a fetch, a push or a signed commit, GitCraft asks for it in a dialog. With a credential
   helper set up, git remembers what you type, as it does on the command line.
@@ -72,7 +73,7 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
   it works for what you did on the command line too. Undoing a commit puts its changes back in the
   index; your uncommitted work stays where it is.
 - **Safe by default**: a hard reset, deleting a branch with commits no other branch or tag has, a
-  force push and dropping a stash all ask first, saying what will be lost.
+  force push, dropping a stash and removing a remote all ask first, saying what will be lost.
 
 GitCraft runs your own `git` for everything that changes a repository, so your config, hooks,
 credentials and commit signing work exactly as they do on the command line.
