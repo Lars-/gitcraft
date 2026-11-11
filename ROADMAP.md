@@ -42,18 +42,19 @@ drive it the way a user does, and keeps every benchmark as fast as before.
       whether to trust a host ssh does not know yet
 - [x] Push and pull options: pull with rebase, and push to any remote, force push or push tags,
       from the right-click menus of Pull and Push
+- [x] Remotes: each remote in the sidebar with its branches; add one (and fetch it), give it
+      another name or URL, or remove it
 
 ## Next
 
-1. **Remotes**: add, edit and remove.
-2. **Search the graph** by message, author or SHA, and jump to any branch or tag.
-3. **File history and blame.**
-4. **Better diffs**: side by side, word-level changes, syntax colouring, images.
-5. **Keyboard**: shortcuts for everything, and a command palette.
-6. **Settings**: light and dark theme, font size, date format, default pull mode.
-7. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
+1. **Search the graph** by message, author or SHA, and jump to any branch or tag.
+2. **File history and blame.**
+3. **Better diffs**: side by side, word-level changes, syntax colouring, images.
+4. **Keyboard**: shortcuts for everything, and a command palette.
+5. **Settings**: light and dark theme, font size, date format, default pull mode.
+6. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
    over the network).
-8. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
+7. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
    (AppImage, .deb, Flatpak), signed where the platform expects it.
 
 ## After 1.0

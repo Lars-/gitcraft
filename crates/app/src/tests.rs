@@ -101,10 +101,11 @@ fn open_in_new_tab(harness: &mut Harness<'_, App>, git: &Git) {
     settle(harness);
 }
 
-/// Types into the text field labelled `label`.
+/// Types `text` over what the text field labelled `label` holds.
 fn type_into(harness: &mut Harness<'_, App>, label: &str, text: &str) {
     harness.get_by_label(label).click();
     harness.run();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
     harness.get_by_label(label).type_text(text);
     harness.run();
 }
@@ -649,6 +650,50 @@ fn pull_with_rebase_force_push_to_another_remote_and_push_tags() {
 }
 
 #[test]
+fn add_edit_and_remove_a_remote() {
+    let (_dir, git) = repo();
+    let dirs = [(); 2].map(|()| tempfile::tempdir().unwrap());
+    let [first, second] = [0, 1].map(|i| dirs[i].path().to_str().unwrap().to_owned());
+    for dir in [&first, &second] {
+        git.run(&["clone", "-q", "--bare", ".", dir]).unwrap();
+    }
+    Git::new(&second).run(&["branch", "other", "main"]).unwrap();
+    let url = |name: &str| git.run(&["remote", "get-url", name]).map(|url| url.trim().to_owned());
+    let mut harness = app(Some(git.dir()));
+
+    // A new remote is fetched from, so that its branches are there at once.
+    harness.get_by_label("Add remote…").click();
+    harness.run();
+    assert!(harness.get_by_label("Name").is_focused(), "ready to type the name");
+    type_into(&mut harness, "Name", "origin");
+    type_into(&mut harness, "URL", &first);
+    harness.get_by_label("Add").click();
+    settle(&mut harness);
+    assert_eq!(url("origin").unwrap(), first);
+    harness.get_by_label("Remote  1");
+
+    menu(&mut harness, "origin", &["Edit remote…"]);
+    assert_eq!(harness.get_by_label("URL").value().as_deref(), Some(first.as_str()), "it starts from the URL");
+    type_into(&mut harness, "Name", "upstream");
+    type_into(&mut harness, "URL", &second);
+    harness.get_by_label("Save").click();
+    settle(&mut harness);
+    assert_eq!(url("upstream").unwrap(), second);
+    assert!(url("origin").is_err());
+    harness.get_by_label("Fetch").click();
+    settle(&mut harness);
+    harness.get_by_label("Remote  2");
+
+    menu(&mut harness, "upstream", &["Remove remote…"]);
+    harness.get_by_label(&format!("Remove the remote upstream ({second}) and its remote branches?"));
+    harness.get_by_label("Remove").click();
+    settle(&mut harness);
+    assert_eq!(git.run(&["remote"]).unwrap(), "");
+    harness.get_by_label("Remote  0");
+    assert_eq!(harness.state().workspace().unwrap().error, None);
+}
+
+#[test]
 fn deleting_a_stash_asks_first() {
     let (_dir, git) = repo();
     fs::write(git.dir().join("file.txt"), "stashed").unwrap();
@@ -880,16 +925,9 @@ fn reword_a_commit_in_an_interactive_rebase() {
     settle(&mut harness);
     assert_eq!(harness.get_by_label(field).value().as_deref(), Some("Add one"), "it starts from the old message");
 
-    let retype = |harness: &mut Harness<'_, App>, text: &str| {
-        harness.get_by_label(field).click();
-        harness.run();
-        harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
-        harness.get_by_label(field).type_text(text);
-        harness.run();
-    };
-    retype(&mut harness, " ");
+    type_into(&mut harness, field, " ");
     assert!(harness.get_by_label("Start rebase").accesskit_node().is_disabled(), "a message cannot be empty");
-    retype(&mut harness, "One\n\nWith a body");
+    type_into(&mut harness, field, "One\n\nWith a body");
     harness.key_press(Key::Escape);
     settle(&mut harness);
     assert!(harness.state().workspace().unwrap().plan.is_some(), "Escape in the message leaves only the message");

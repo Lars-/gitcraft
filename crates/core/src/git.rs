@@ -56,9 +56,15 @@ impl Git {
         checked(&args, &output(command, op.input())?, &[0])
     }
 
-    /// The names of the remotes.
-    pub fn remotes(&self) -> Result<Vec<String>> {
-        Ok(self.run(&["remote"])?.lines().map(str::to_owned).collect())
+    /// The remotes, by name.
+    pub fn remotes(&self) -> Result<Vec<Remote>> {
+        // A line to fetch and one or more to push for each remote, or just the name without a URL.
+        let list = self.run(&["remote", "-v"])?;
+        let remotes = list.lines().filter(|line| !line.ends_with(" (push)")).map(|line| {
+            let (name, url) = line.split_once('\t').unwrap_or((line, ""));
+            Remote { name: name.to_owned(), url: url.strip_suffix(" (fetch)").unwrap_or(url).to_owned() }
+        });
+        Ok(remotes.collect())
     }
 
     /// How many commits of `branch` no other branch, remote branch or tag has: deleting it loses
@@ -120,6 +126,15 @@ impl Git {
         }
         command
     }
+}
+
+/// A repository to fetch from and push to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Remote {
+    /// The name, like `origin`.
+    pub name: String,
+    /// Where git fetches from, after any `insteadOf` in the config; empty without one.
+    pub url: String,
 }
 
 /// Runs `command` with `input` on standard input.
@@ -377,6 +392,29 @@ pub enum Op {
     },
     /// Push every tag to a remote.
     PushTags(String),
+    /// Add a remote and fetch from it.
+    AddRemote {
+        /// Its name.
+        name: String,
+        /// Where it is.
+        url: String,
+    },
+    /// Give a remote another name, along with its remote branches and the branches that track them.
+    RenameRemote {
+        /// The remote.
+        name: String,
+        /// Its new name.
+        to: String,
+    },
+    /// Fetch from another URL, and push to it unless the remote has a push URL of its own.
+    SetRemoteUrl {
+        /// The remote.
+        name: String,
+        /// The new URL.
+        url: String,
+    },
+    /// Remove a remote and its remote branches.
+    RemoveRemote(String),
     /// Undo or redo an action with a checkout or a reset (see [`crate::undo`]).
     Undo {
         /// What its line in the reflog starts with: `undo` or `redo`, and the reset mode.
@@ -436,6 +474,10 @@ impl Op {
                 (&["push", "-q"], rest)
             }
             Self::PushTags(remote) => (&["push", "-q", "--tags"], vec![remote]),
+            Self::AddRemote { name, url } => (&["remote", "add", "-f", "--"], vec![name, url]),
+            Self::RenameRemote { name, to } => (&["remote", "rename", "--"], vec![name, to]),
+            Self::SetRemoteUrl { name, url } => (&["remote", "set-url", "--"], vec![name, url]),
+            Self::RemoveRemote(name) => (&["remote", "remove", "--"], vec![name]),
             Self::Undo { op, .. } => return op.args(),
         };
         command.iter().copied().chain(rest).map(str::to_owned).collect()

@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use gitcraft_core::conflict::{Conflicts, Pick};
 use gitcraft_core::diff::{self, FileDiff, Source};
-use gitcraft_core::git::{Op, Step};
+use gitcraft_core::git::{Op, Remote, Step};
 use gitcraft_core::repo::{Commit, History, Repo, Underway};
 use gitcraft_core::status::{self, Change, FileChange, Status};
 use gitcraft_core::undo::{self, Undo};
@@ -54,7 +54,7 @@ pub enum Action {
     Step(usize, Step),
     /// Move a commit of the plan to another place.
     Shift(usize, usize),
-    /// Ask for a name first.
+    /// Ask for a name, or a name and a URL, first.
     Prompt(Prompt),
     /// Ask whether to go ahead first.
     Confirm(Confirm),
@@ -77,7 +77,7 @@ pub enum Selection {
     Commit(ObjectId),
 }
 
-/// An operation that needs a name.
+/// An operation that needs a name, and for a remote a URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Prompt {
     /// A new branch at a commit.
@@ -90,14 +90,31 @@ pub enum Prompt {
         /// The commit.
         at: String,
     },
+    /// A new remote, or another name or URL for this one.
+    Remote(Option<Remote>),
 }
 
 impl Prompt {
-    /// The operation, once the name is known.
-    pub fn op(&self, name: String) -> Op {
+    /// What the name and the URL start as.
+    fn fields(&self) -> [String; 2] {
         match self {
-            Self::Branch { at } => Op::Branch { name, at: at.clone() },
-            Self::Tag { at } => Op::Tag { name, at: at.clone() },
+            Self::Remote(Some(remote)) => [remote.name.clone(), remote.url.clone()],
+            _ => Default::default(),
+        }
+    }
+
+    /// The operations, once the name and the URL are known.
+    pub fn ops(&self, [name, url]: [String; 2]) -> Vec<Op> {
+        match self {
+            Self::Branch { at } => vec![Op::Branch { name, at: at.clone() }],
+            Self::Tag { at } => vec![Op::Tag { name, at: at.clone() }],
+            Self::Remote(None) => vec![Op::AddRemote { name, url }],
+            Self::Remote(Some(old)) => {
+                // The URL changes first, so that a name git refuses is what it says last.
+                let url = (url != old.url).then(|| Op::SetRemoteUrl { name: old.name.clone(), url });
+                let to = (name != old.name).then(|| Op::RenameRemote { name: old.name.clone(), to: name });
+                url.into_iter().chain(to).collect()
+            }
         }
     }
 }
@@ -122,8 +139,8 @@ pub struct Snapshot {
     pub status: Status,
     /// The stash messages, newest first.
     pub stashes: Vec<String>,
-    /// The names of the remotes.
-    pub remotes: Vec<String>,
+    /// The remotes, by name.
+    pub remotes: Vec<Remote>,
     /// What undo and redo would do.
     pub undo: Undo,
     /// What stopped half way, if anything.
@@ -278,8 +295,8 @@ pub struct Workspace {
     pub description: String,
     /// Whether the next commit replaces the last one.
     pub amend: bool,
-    /// A name being asked for.
-    pub prompt: Option<(Prompt, String)>,
+    /// A name, and for a remote a URL, being asked for.
+    pub prompt: Option<(Prompt, [String; 2])>,
     /// An operation waiting for the user to go ahead.
     pub confirm: Option<Confirm>,
     /// The last thing that went wrong.
@@ -425,7 +442,10 @@ impl Workspace {
                     file.lines.insert((hunk, line));
                 }
             }
-            Action::Prompt(prompt) => self.prompt = Some((prompt, String::new())),
+            Action::Prompt(prompt) => {
+                let fields = prompt.fields();
+                self.prompt = Some((prompt, fields));
+            }
             Action::Confirm(confirm) => self.confirm = Some(confirm),
             Action::DeleteBranch(name) => match self.repo.git.only_on(&name) {
                 Ok(0) => self.start(ctx, Some(Op::DeleteBranch(name))),
