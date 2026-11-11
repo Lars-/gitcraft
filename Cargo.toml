@@ -16,7 +16,7 @@ notify = "8.2"
 thiserror = "2"
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "persistence"] }
 egui_kittest = "0.37"
-rfd = "0.17"
+rfd = "0.18"
 tempfile = "3"
 proptest = "1"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
