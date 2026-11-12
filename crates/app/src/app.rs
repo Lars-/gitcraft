@@ -303,7 +303,7 @@ pub struct Workspace {
     pub error: Option<String>,
     /// A graph row to scroll to.
     pub scroll_to: Option<usize>,
-    /// The graph rows on screen.
+    /// The graph rows wholly on screen.
     pub visible: Range<usize>,
     job: Option<Job>,
     /// What the user asked for while a job ran, to run after it, in order.

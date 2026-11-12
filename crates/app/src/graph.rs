@@ -27,15 +27,7 @@ pub fn points(n: usize) -> f32 {
 pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     let wip = usize::from(!ws.snapshot.status.is_clean());
     let total = ws.snapshot.history.ids.len() + wip;
-    if !ui.ctx().egui_wants_keyboard_input() {
-        let step = ui.input(|i| isize::from(i.key_pressed(Key::ArrowDown)) - isize::from(i.key_pressed(Key::ArrowUp)));
-        let next = ws.selected_row().map_or(0, |row| row.saturating_add_signed(step));
-        if step != 0
-            && let Some(selection) = ws.row_selection(next)
-        {
-            actions.push(Action::Reveal(selection));
-        }
-    }
+    arrow_keys(ui, ws, actions);
     let mut area = egui::ScrollArea::vertical().auto_shrink(false);
     if let Some(row) = ws.scroll_to.take()
         && !ws.visible.contains(&row)
@@ -47,7 +39,9 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     let now = theme::now();
     ui.spacing_mut().item_spacing.y = 0.0;
     area.show_rows(ui, ROW, total, |ui, range| {
-        ws.visible = range.clone();
+        // egui draws a row or two more than fit; only the rows wholly on screen count as visible.
+        let screen = ui.clip_rect();
+        ws.visible = range.end..range.end;
         let history = &ws.snapshot.history;
         // The graph gets at most a third of the width; the message never less than a third.
         let width = ui.available_width();
@@ -61,6 +55,9 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
         for i in range {
             let (rect, response) =
                 ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click_and_drag());
+            if screen.contains_rect(rect) {
+                ws.visible = ws.visible.start.min(i)..i + 1;
+            }
             let painter = ui.painter_at(rect);
             if selected == Some(i) {
                 painter.rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
@@ -124,6 +121,20 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
             response.context_menu(|ui| commit_menu(ui, id, labels, current.as_deref(), actions));
         }
     });
+}
+
+/// The up and down arrows move the selection, unless a text field has the keyboard.
+fn arrow_keys(ui: &Ui, ws: &Workspace, actions: &mut Vec<Action>) {
+    if ui.ctx().egui_wants_keyboard_input() {
+        return;
+    }
+    let step = ui.input(|i| isize::from(i.key_pressed(Key::ArrowDown)) - isize::from(i.key_pressed(Key::ArrowUp)));
+    let next = ws.selected_row().map_or(0, |row| row.saturating_add_signed(step));
+    if step != 0
+        && let Some(selection) = ws.row_selection(next)
+    {
+        actions.push(Action::Reveal(selection));
+    }
 }
 
 /// Lets the commit `id` in row `index` be dragged, and takes a commit dropped onto it to its place,

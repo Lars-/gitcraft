@@ -386,6 +386,22 @@ fn changes_made_outside_show_up_by_themselves() {
 }
 
 #[test]
+fn the_graph_scrolls_to_a_commit_just_below_its_edge() {
+    let (_dir, git) = repo();
+    for n in 2..=40 {
+        commit(&git, &format!("Commit {n}"));
+    }
+    let mut harness = app(Some(git.dir()));
+    // egui draws a row or two more than fit in the window; walking onto those scrolls too.
+    for n in (2..40).rev() {
+        harness.key_press(Key::ArrowDown);
+        settle(&mut harness);
+        let row = harness.get_by_role_and_label(Role::Button, &format!("Commit {n}")).rect();
+        assert!(row.bottom() <= 720.0, "Commit {n} is at {row:?}, below the window");
+    }
+}
+
+#[test]
 fn arrow_keys_walk_the_history() {
     let (_dir, git) = repo();
     commit(&git, "Second commit");
