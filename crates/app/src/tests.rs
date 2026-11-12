@@ -104,10 +104,10 @@ fn open_in_new_tab(harness: &mut Harness<'_, App>, git: &Git) {
 /// Types `text` over what the text field labelled `label` holds.
 fn type_into(harness: &mut Harness<'_, App>, label: &str, text: &str) {
     harness.get_by_label(label).click();
-    harness.run();
+    settle(harness);
     harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
     harness.get_by_label(label).type_text(text);
-    harness.run();
+    settle(harness);
 }
 
 #[test]
