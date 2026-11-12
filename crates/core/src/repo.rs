@@ -1,6 +1,7 @@
 //! An open repository: its history, its commits and the `git` to change it with.
 
 use std::collections::HashMap;
+use std::ops::Range;
 use std::path::Path;
 
 use gix::ObjectId;
@@ -188,6 +189,32 @@ impl Repo {
             ids: order.iter().map(|&i| ids[i]).collect(),
             labels: by_row,
         })
+    }
+
+    /// The rows in `rows` that match `text`, top to bottom. A commit matches with `text` in its
+    /// message, its author's name or email address, or the name of a branch or tag on it, in
+    /// upper or lower case; or with a SHA that starts with it, from four hex digits on, the
+    /// shortest git abbreviates to.
+    pub fn search(&self, history: &History, rows: Range<usize>, text: &str) -> Result<Vec<usize>> {
+        let text = text.to_lowercase();
+        let sha = gix::hash::Prefix::from_hex(&text).ok();
+        let has = |bytes: &[u8]| String::from_utf8_lossy(bytes).to_lowercase().contains(&text);
+        let mut found = Vec::new();
+        for row in rows {
+            let id = history.ids[row];
+            let labels = history.labels.get(&row).map_or(&[][..], Vec::as_slice);
+            let matches = sha.is_some_and(|sha| sha.cmp_oid(&id).is_eq())
+                || labels.iter().any(|label| has(label.name.as_bytes()))
+                || {
+                    let commit = self.gix.find_commit(id).map_err(Error::repository)?;
+                    let author = commit.author().map_err(Error::repository)?;
+                    has(commit.message_raw().map_err(Error::repository)?) || has(author.name) || has(author.email)
+                };
+            if matches {
+                found.push(row);
+            }
+        }
+        Ok(found)
     }
 
     /// Reads one commit.

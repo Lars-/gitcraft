@@ -32,6 +32,10 @@ pub enum Action {
     Select(Selection),
     /// Select something and scroll the graph to it.
     Reveal(Selection),
+    /// Search the graph for this text, and go to what matches best.
+    Search(String),
+    /// Go to the next match of the search down the graph, or with `false` up.
+    Next(bool),
     /// Show the diff of a file instead of the graph.
     Open(Source),
     /// Back to the graph.
@@ -243,6 +247,49 @@ impl Plan {
     }
 }
 
+/// A search of the graph. It goes down the graph a part at a time, so that the window never waits
+/// for a large history, and starts again when the history changes.
+#[derive(Debug, Default)]
+pub struct Search {
+    /// What to look for.
+    pub text: String,
+    /// The rows that match, top to bottom.
+    pub rows: Vec<usize>,
+    /// How many rows from the top were searched.
+    pub done: usize,
+    /// Whether to go to the first match once there is one.
+    jump: bool,
+}
+
+impl Search {
+    /// Whether a search is on and `row` was searched without a match, to show it less.
+    pub fn misses(&self, row: usize) -> bool {
+        !self.text.is_empty() && row < self.done && self.rows.binary_search(&row).is_err()
+    }
+
+    /// The match after `row` down the graph, or with `down` false up, going round at the end.
+    fn next(&self, row: Option<usize>, down: bool) -> Option<usize> {
+        let rows = &self.rows;
+        let next = if down {
+            rows.iter().find(|&&at| row.is_none_or(|row| at > row)).or(rows.first())
+        } else {
+            rows.iter().rev().find(|&&at| row.is_some_and(|row| at < row)).or(rows.last())
+        };
+        next.copied()
+    }
+
+    /// How many matches there are, and which of them `row` is.
+    pub fn count(&self, row: Option<usize>, total: usize) -> String {
+        let found = self.rows.len();
+        let more = if self.done < total { "+" } else { "" };
+        match row.and_then(|row| self.rows.binary_search(&row).ok()) {
+            Some(at) => format!("{} of {found}{more}", at + 1),
+            None if found == 0 && more.is_empty() => "No matches".to_owned(),
+            None => format!("{found}{more} found"),
+        }
+    }
+}
+
 /// Commits read so far, so scrolling back costs nothing.
 #[derive(Debug, Default)]
 pub struct Commits(HashMap<ObjectId, Commit>);
@@ -305,6 +352,8 @@ pub struct Workspace {
     pub scroll_to: Option<usize>,
     /// The graph rows wholly on screen.
     pub visible: Range<usize>,
+    /// The search of the graph.
+    pub search: Search,
     job: Option<Job>,
     /// What the user asked for while a job ran, to run after it, in order.
     queue: Vec<Op>,
@@ -336,6 +385,7 @@ impl Workspace {
             error: None,
             scroll_to: None,
             visible: 0..0,
+            search: Search::default(),
             job: None,
             queue: Vec::new(),
             changed: Arc::default(),
@@ -363,6 +413,21 @@ impl Workspace {
         }
     }
 
+    /// The row of the selected commit in the history, without the uncommitted changes.
+    pub fn selected_commit(&self) -> Option<usize> {
+        match self.selection? {
+            Selection::Commit(id) => self.snapshot.history.row(id),
+            Selection::Wip => None,
+        }
+    }
+
+    /// Selects the commit in history row `row`, if any, and scrolls the graph to it.
+    fn reveal_row(&mut self, ctx: &egui::Context, row: Option<usize>) {
+        if let Some(row) = row {
+            self.apply(ctx, Action::Reveal(Selection::Commit(self.snapshot.history.ids[row])));
+        }
+    }
+
     /// What is in graph row `row`, counting the uncommitted changes as row 0.
     pub fn row_selection(&self, row: usize) -> Option<Selection> {
         let wip = usize::from(!self.snapshot.status.is_clean());
@@ -382,6 +447,17 @@ impl Workspace {
                 self.select(selection);
                 self.scroll_to = self.selected_row();
             }
+            Action::Search(text) => {
+                // A branch or tag of that very name goes before what only has the text in it.
+                let name = text.to_lowercase();
+                let labels = self.snapshot.history.labels.iter();
+                let named = labels.filter(|(_, labels)| labels.iter().any(|label| label.name.to_lowercase() == name));
+                let named = named.map(|(&row, _)| row).min();
+                self.search = Search { jump: named.is_none(), text, ..Search::default() };
+                self.reveal_row(ctx, named);
+                ctx.request_repaint();
+            }
+            Action::Next(down) => self.reveal_row(ctx, self.search.next(self.selected_commit(), down)),
             Action::Open(source) => match diff::read(&self.repo.git, &source) {
                 Ok(diff) => {
                     (self.merge, self.plan) = (None, None);
@@ -508,6 +584,31 @@ impl Workspace {
         }
     }
 
+    /// Searches on down the graph for a few milliseconds, and goes to the first match if the
+    /// search is new.
+    pub fn search_on(&mut self, ctx: &egui::Context) {
+        let (search, history) = (&mut self.search, &self.snapshot.history);
+        let total = history.ids.len();
+        let started = Instant::now();
+        while !search.text.is_empty() && search.done < total && started.elapsed() < Duration::from_millis(8) {
+            let rows = search.done..total.min(search.done + 1000);
+            search.done = rows.end;
+            match self.repo.search(history, rows, &search.text) {
+                Ok(found) => search.rows.extend(found),
+                Err(error) => {
+                    (self.error, search.done) = (Some(error.to_string()), total);
+                }
+            }
+        }
+        if search.done < total && !search.text.is_empty() {
+            ctx.request_repaint();
+        }
+        if let Some(&row) = search.rows.first().filter(|_| search.jump) {
+            search.jump = false;
+            self.reveal_row(ctx, Some(row));
+        }
+    }
+
     /// Reloads when something changed, leaving at least as much time between two reloads as the
     /// last one took, so that a build or a long checkout never keeps the window busy.
     pub fn reload_if_changed(&mut self, ctx: &egui::Context) {
@@ -577,7 +678,14 @@ impl Workspace {
             self.error = failed;
         }
         match snapshot {
-            Some(Ok(snapshot)) => self.snapshot = snapshot,
+            Some(Ok(snapshot)) => {
+                // Other commits or other branches and tags are searched again.
+                let (old, new) = (&self.snapshot.history, &snapshot.history);
+                if old.ids != new.ids || old.labels != new.labels {
+                    (self.search.rows, self.search.done) = (Vec::new(), 0);
+                }
+                self.snapshot = snapshot;
+            }
             Some(Err(error)) => self.error = Some(error.to_string()),
             None => {}
         }

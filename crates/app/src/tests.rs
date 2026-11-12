@@ -418,12 +418,71 @@ fn arrow_keys_walk_the_history() {
 }
 
 #[test]
+fn search_the_graph_and_go_from_match_to_match() {
+    let (_dir, git) = repo();
+    commit(&git, "Fix the parser");
+    git.run(&["tag", "release"]).unwrap();
+    commit(&git, "Prepare the release");
+    commit(&git, "Fix the printer");
+    let mut harness = app(Some(git.dir()));
+    let ids = harness.state().workspace().unwrap().snapshot.history.ids.clone();
+    let selected = |harness: &Harness<'_, App>| match harness.state().workspace().unwrap().selection {
+        Some(Selection::Commit(id)) => ids.iter().position(|&i| i == id),
+        _ => None,
+    };
+
+    // The first match is shown at once; Enter and the arrows go on, round to the start again.
+    harness.key_press(Key::ArrowDown);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::F);
+    settle(&mut harness);
+    harness.get_by_label("Search").type_text("FIX");
+    settle(&mut harness);
+    assert_eq!(selected(&harness), Some(0));
+    harness.get_by_label("1 of 2");
+    harness.key_press(Key::Enter);
+    settle(&mut harness);
+    assert_eq!(selected(&harness), Some(2));
+    harness.get_by_label("2 of 2");
+    harness.key_press(Key::Enter);
+    settle(&mut harness);
+    assert_eq!(selected(&harness), Some(0));
+    harness.key_press_modifiers(Modifiers::SHIFT, Key::Enter);
+    settle(&mut harness);
+    assert_eq!(selected(&harness), Some(2));
+    harness.get_by_label("Previous match").click();
+    settle(&mut harness);
+    assert_eq!(selected(&harness), Some(0));
+
+    // A tag by its name goes before a message that has it; a commit by its SHA.
+    type_into(&mut harness, "Search", "release");
+    settle(&mut harness);
+    assert_eq!(selected(&harness), Some(2));
+    harness.get_by_label("2 of 2");
+    type_into(&mut harness, "Search", &ids[3].to_string()[..7]);
+    settle(&mut harness);
+    assert_eq!(selected(&harness), Some(3));
+    type_into(&mut harness, "Search", "nothing like this");
+    settle(&mut harness);
+    harness.get_by_label("No matches");
+
+    // Escape ends the search, and a commit made meanwhile is searched too.
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    assert_eq!(harness.state().workspace().unwrap().search.text, "");
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::F);
+    harness.get_by_label("Search").type_text("fix");
+    settle(&mut harness);
+    commit(&git, "Fix the docs");
+    wait_until(&mut harness, "the commit", |h| h.query_by_label("2 of 3").is_some());
+}
+
+#[test]
 fn create_a_branch_from_the_toolbar() {
     let (_dir, git) = repo();
     let mut harness = app(Some(git.dir()));
     harness.get_by_label("Branch").click();
     harness.run();
-    harness.get_by_role(Role::TextInput).type_text("feature");
+    harness.get_by_label("Name").type_text("feature");
     harness.run();
     harness.get_by_label("Create").click();
     settle(&mut harness);

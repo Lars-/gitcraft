@@ -1,8 +1,11 @@
-//! The commit graph: one row per commit, with its branches, lanes and message. A commit dragged
-//! onto another moves to its place, in an interactive rebase.
+//! The commit graph: one row per commit, with its branches, lanes and message, and a search
+//! above it. A commit dragged onto another moves to its place, in an interactive rebase.
 
 use eframe::egui::epaint::CubicBezierShape;
-use eframe::egui::{self, Color32, FontId, Key, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, Ui, Vec2};
+use eframe::egui::{
+    self, Button, Color32, FontId, Key, KeyboardShortcut, Modifiers, Painter, Pos2, Rect, Response, RichText, Role,
+    Sense, Shape, Stroke, TextEdit, Ui, Vec2, WidgetInfo,
+};
 use gitcraft_core::ObjectId;
 use gitcraft_core::git::{Op, ResetMode};
 use gitcraft_core::graph::{Half, Row};
@@ -23,8 +26,9 @@ pub fn points(n: usize) -> f32 {
     f32::from(u16::try_from(n).unwrap_or(u16::MAX))
 }
 
-/// Shows the graph.
+/// Shows the search and the graph.
 pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
+    search(ui, ws, actions);
     let wip = usize::from(!ws.snapshot.status.is_clean());
     let total = ws.snapshot.history.ids.len() + wip;
     arrow_keys(ui, ws, actions);
@@ -98,7 +102,8 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                         let tooltip = egui::Tooltip::for_widget(&response).at_pointer();
                         tooltip.show(|ui| ui.label(format!("Move {}", commit.summary())));
                     }
-                    put(ui, text, commit.summary());
+                    let summary = RichText::new(commit.summary());
+                    put(ui, text, if ws.search.misses(index) { summary.weak() } else { summary });
                     if author_width > 0.0 {
                         let author =
                             Rect::from_x_y_ranges(text.right() + 8.0..=text.right() + author_width, rect.y_range());
@@ -135,6 +140,44 @@ fn arrow_keys(ui: &Ui, ws: &Workspace, actions: &mut Vec<Action>) {
     {
         actions.push(Action::Reveal(selection));
     }
+}
+
+/// The search field, with the way from match to match and how many there are.
+fn search(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
+    const FIND: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::F);
+    let search = &ws.search;
+    ui.horizontal(|ui| {
+        let mut text = search.text.clone();
+        let hint = format!("Search commits, branches and tags  ({})", ui.ctx().format_shortcut(&FIND));
+        let field = TextEdit::singleline(&mut text).hint_text(hint).return_key(None).desired_width(320.0);
+        let help = "A message, author, SHA, branch or tag. Enter goes to the next match, Shift+Enter back.";
+        let field = ui.add(field).accessible_name("Search").on_hover_text(help);
+        if ui.input_mut(|i| i.consume_shortcut(&FIND)) {
+            field.request_focus();
+        }
+        // Escape takes the focus away before the frame, so the field has just lost it.
+        if field.lost_focus() && ui.input(|i| i.key_pressed(Key::Escape)) {
+            text.clear();
+        }
+        if text != search.text {
+            actions.push(Action::Search(text));
+        }
+        if field.has_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+            actions.push(Action::Next(!ui.input(|i| i.modifiers.shift)));
+        }
+        if search.text.is_empty() {
+            return;
+        }
+        let found = !search.rows.is_empty();
+        for (arrow, name, down) in [("↑", "Previous match", false), ("↓", "Next match", true)] {
+            let button = ui.add_enabled(found, Button::new(RichText::new(arrow).monospace()));
+            button.widget_info(|| WidgetInfo::labeled(Role::Button, found, name));
+            if button.on_hover_text(name).clicked() {
+                actions.push(Action::Next(down));
+            }
+        }
+        ui.weak(search.count(ws.selected_commit(), ws.snapshot.history.ids.len()));
+    });
 }
 
 /// Lets the commit `id` in row `index` be dragged, and takes a commit dropped onto it to its place,

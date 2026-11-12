@@ -98,6 +98,29 @@ fn history_has_every_branch_and_tag_in_graph_order() {
 }
 
 #[test]
+fn search_finds_messages_authors_shas_branches_and_tags_in_either_case() {
+    let (_dir, git) = repo();
+    let root = commit(&git, "a.txt", "a\n", "Root");
+    let message = "Fix the parser\n\nÜber-long lines no more";
+    git.run(&["commit", "-q", "--allow-empty", "--author", "Ada Lovelace <ada@example.org>", "-m", message]).unwrap();
+    git.apply(&Op::Tag { name: "Shipped".into(), at: "HEAD".into() }).unwrap();
+    commit(&git, "a.txt", "b\n", "Fix the printer");
+
+    // Top to bottom: the printer fix on main, the parser fix by Ada with the tag, the root.
+    let repo = Repo::open(git.dir()).unwrap();
+    let history = repo.history().unwrap();
+    let search = |text: &str| repo.search(&history, 0..3, text).unwrap();
+    assert_eq!(search("fix"), [0, 1]);
+    assert_eq!(search("üBER-LONG"), [1]);
+    assert_eq!((search("lovelace"), search("EXAMPLE.ORG"), search("tess@")), (vec![1], vec![1], vec![0, 2]));
+    assert_eq!((search("MAIN"), search("shipped")), (vec![0], vec![1]));
+    assert_eq!(search(&root[..4].to_uppercase()), [2]);
+    // Fewer than four hex digits, or digits from the middle, are no SHA; the root has no such text.
+    assert!(!search(&root[..3]).contains(&2) && !search(&root[1..8]).contains(&2));
+    assert_eq!((search("no such text"), repo.search(&history, 1..3, "fix").unwrap()), (vec![], vec![1]));
+}
+
+#[test]
 fn opens_from_a_subfolder_and_handles_an_empty_repository() {
     let (_dir, git) = repo();
     fs::create_dir(git.dir().join("sub")).unwrap();
