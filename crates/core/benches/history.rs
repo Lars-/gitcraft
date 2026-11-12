@@ -36,6 +36,10 @@ fn repository(c: &mut Criterion) {
     c.bench_function("commits for ten screens", |b| {
         b.iter(|| screens.iter().map(|&id| repo.commit(id).unwrap()).collect::<Vec<_>>());
     });
+    let all = 0..history.ids.len();
+    c.bench_function("search the bench repository", |b| {
+        b.iter(|| repo.search(&history, all.clone(), black_box("no commit says this")).unwrap());
+    });
 }
 
 criterion_group!(benches, graph, repository);

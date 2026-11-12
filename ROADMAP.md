@@ -44,17 +44,17 @@ drive it the way a user does, and keeps every benchmark as fast as before.
       from the right-click menus of Pull and Push
 - [x] Remotes: each remote in the sidebar with its branches; add one (and fetch it), give it
       another name or URL, or remove it
+- [x] Search the graph by message, author or SHA, and jump to any branch or tag by its name
 
 ## Next
 
-1. **Search the graph** by message, author or SHA, and jump to any branch or tag.
-2. **File history and blame.**
-3. **Better diffs**: side by side, word-level changes, syntax colouring, images.
-4. **Keyboard**: shortcuts for everything, and a command palette.
-5. **Settings**: light and dark theme, font size, date format, default pull mode.
-6. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
+1. **File history and blame.**
+2. **Better diffs**: side by side, word-level changes, syntax colouring, images.
+3. **Keyboard**: shortcuts for everything, and a command palette.
+4. **Settings**: light and dark theme, font size, date format, default pull mode.
+5. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
    over the network).
-7. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
+6. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
    (AppImage, .deb, Flatpak), signed where the platform expects it.
 
 ## After 1.0

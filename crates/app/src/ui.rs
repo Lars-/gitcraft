@@ -113,6 +113,7 @@ impl App {
         // A tab out of sight reloads when it is shown.
         if let Some(ws) = self.workspace_mut() {
             ws.reload_if_changed(&ctx);
+            ws.search_on(&ctx);
         }
         let mut actions = Vec::new();
         if !self.tabs.is_empty() {

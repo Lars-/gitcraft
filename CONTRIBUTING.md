@@ -49,6 +49,8 @@ There are two crates.
 
 - `repo.rs` reads the history, refs and commits with gitoxide, in-process, because the graph needs
   millions of lookups, and what is under way: a merge, rebase, cherry-pick or revert that stopped.
+  It also searches the history, a range of rows at a time, so the app can search a little each
+  frame.
 - `graph.rs` orders commits (`git log --date-order`) and lays out the lanes. It keeps a snapshot of
   the lanes every 256 rows, so it only ever builds the rows on screen.
 - `git.rs` runs the user's own `git` for everything else. Every change to a repository is one

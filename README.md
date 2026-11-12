@@ -45,6 +45,11 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
   ignores do not wake it.
 - **Graph**: every branch, remote branch and tag in one graph, children above parents, with
   coloured lanes, branch and tag labels and the uncommitted changes on top. Arrow keys walk it.
+- **Search**: press Ctrl+F (Cmd+F on a Mac) and type part of a message, an author's name or email
+  address, the start of a SHA, or a branch or tag name. The graph goes to the first match and
+  dims the rest; Enter goes to the next match and Shift+Enter back. A branch or tag with exactly
+  that name comes first, so typing its name takes you there. Large histories are searched as you
+  type, without the window waiting.
 - **Commits**: message, author, parents and the files they changed, with the diff of each file.
 - **Staging**: stage or unstage files, whole hunks or single lines, then commit or amend.
 - **Discard**: throw away the changes to a file, a hunk or single lines, after you confirm.
