@@ -210,7 +210,7 @@ fn commit(ui: &mut Ui, ws: &mut Workspace, id: ObjectId, actions: &mut Vec<Actio
     let open = ws.open_file.as_ref().map(|f| &f.source);
     egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
         for change in files {
-            let source = Source::Commit { commit: sha.clone(), path: change.path.clone() };
+            let source = Source::Commit { commit: sha.clone(), path: change.path.clone(), from: change.from.clone() };
             if file(ui, change.change, &change.path, open == Some(&source), |_| {}) {
                 actions.push(Action::Open(source));
             }
