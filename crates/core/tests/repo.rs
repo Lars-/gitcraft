@@ -227,11 +227,27 @@ fn diffs_of_untracked_files_and_commits() {
     assert!(untracked.hunks[0].lines.iter().all(|l| l.kind == LineKind::Added));
     assert_eq!(untracked.hunks[0].lines.len(), 2);
 
-    let added = diff::read(&git, &Source::Commit { commit: root.clone(), path: "a.txt".into() }).unwrap();
+    let added = diff::read(&git, &Source::Commit { commit: root.clone(), path: "a.txt".into(), from: None }).unwrap();
     assert_eq!(added.hunks[0].lines.iter().map(|l| l.new).collect::<Vec<_>>(), [Some(1), Some(2)]);
 
     fs::write(git.dir().join("bin.dat"), [0_u8, 1, 2, 0]).unwrap();
     assert!(diff::read(&git, &Source::Untracked("bin.dat".into())).unwrap().binary);
+}
+
+#[test]
+fn the_diff_of_a_file_a_commit_renamed_shows_only_what_changed() {
+    let (_dir, git) = repo();
+    commit(&git, "old.txt", "1\n2\n3\n4\n5\n", "Numbers");
+    git.run(&["mv", "old.txt", "new.txt"]).unwrap();
+    let renamed = commit(&git, "new.txt", "1\n2\n3\n4\n5\n6\n", "Rename and count on");
+
+    let file = status::commit_files(&git, &renamed).unwrap().remove(0);
+    assert_eq!((file.change, file.from.as_deref()), (Change::Renamed, Some("old.txt")));
+    let diff = diff::read(&git, &Source::Commit { commit: renamed, path: file.path, from: file.from }).unwrap();
+    assert!(diff.header.iter().any(|line| line == "rename from old.txt"));
+    let lines = diff.hunks.iter().flat_map(|hunk| &hunk.lines);
+    let changed: Vec<_> = lines.filter(|line| line.kind != LineKind::Context).map(|line| &line.text).collect();
+    assert_eq!(changed, ["6"]);
 }
 
 #[test]

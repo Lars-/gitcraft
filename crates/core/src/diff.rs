@@ -64,6 +64,8 @@ pub enum Source {
         commit: String,
         /// The file.
         path: String,
+        /// Where the commit renamed it from, so that the diff shows the rename and not a new file.
+        from: Option<String>,
     },
 }
 
@@ -87,8 +89,14 @@ pub fn read(git: &Git, source: &Source) -> Result<FileDiff> {
         Source::Untracked(path) => {
             git.run_with(&[&["diff", "--no-index"][..], &OPTIONS, &["--", "/dev/null", path]].concat(), None, &[0, 1])?
         }
-        Source::Commit { commit, path } => git.run(
-            &[&["show", "--format=", "--diff-merges=first-parent"][..], &OPTIONS, &[commit, "--", path]].concat(),
+        Source::Commit { commit, path, from } => git.run(
+            &[
+                &["show", "--format=", "--diff-merges=first-parent"][..],
+                &OPTIONS,
+                &[commit, "--", path],
+                from.as_deref().as_slice(),
+            ]
+            .concat(),
         )?,
     };
     Ok(FileDiff::parse(&output).into_iter().next().unwrap_or_default())
@@ -259,7 +267,7 @@ Binary files a/img.png and b/img.png differ
 
     #[test]
     fn source_knows_its_path() {
-        assert_eq!(Source::Commit { commit: "abc".into(), path: "a/b.rs".into() }.path(), "a/b.rs");
+        assert_eq!(Source::Commit { commit: "abc".into(), path: "a/b.rs".into(), from: None }.path(), "a/b.rs");
         assert_eq!(Source::Untracked("n.txt".into()).path(), "n.txt");
     }
 
