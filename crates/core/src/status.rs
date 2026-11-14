@@ -1,7 +1,7 @@
-//! What changed: in the working tree (`git status`) and in a commit.
+//! What changed: in the working tree (`git status`), in a commit, and to a file over time.
 
 use crate::git::Git;
-use crate::{Error, Result};
+use crate::{Error, ObjectId, Result};
 
 /// How a file changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,22 +174,40 @@ pub fn commit_files(git: &Git, commit: &str) -> Result<Vec<FileChange>> {
     ])?)
 }
 
+/// The commits that changed `path`, newest first, from the commit `at` back, following the file
+/// through renames; each with what it did to the file, under the name the file had there.
+pub fn file_history(git: &Git, at: &str, path: &str) -> Result<Vec<(ObjectId, FileChange)>> {
+    let output =
+        git.run(&["log", "--follow", "--no-show-signature", "--name-status", "-z", "--format=%H", at, "--", path])?;
+    let mut fields = output.split('\0').filter(|f| !f.is_empty());
+    let mut history = Vec::new();
+    // Each commit is its SHA, then on a line of its own what it did to the file. git leaves out
+    // merges when it follows a file.
+    while let Some(sha) = fields.next() {
+        let id = ObjectId::from_hex(sha.as_bytes()).map_err(|_| Error::Parse(sha.to_owned()))?;
+        let code = fields.next().ok_or_else(|| Error::Parse(sha.to_owned()))?;
+        history.push((id, record(code.trim_start(), &mut fields)?));
+    }
+    Ok(history)
+}
+
 /// Parses `--name-status -z`.
 pub fn parse_name_status(output: &str) -> Result<Vec<FileChange>> {
     let mut fields = output.split('\0').filter(|f| !f.is_empty());
-    let mut files = Vec::new();
-    while let Some(code) = fields.next() {
-        let bad = || Error::Parse(code.to_owned());
-        let change = Change::from_code(code.as_bytes()[0]).ok_or_else(bad)?;
-        let first = fields.next().ok_or_else(bad)?.to_owned();
-        let (path, from) = if matches!(change, Change::Renamed | Change::Copied) {
-            (fields.next().ok_or_else(bad)?.to_owned(), Some(first))
-        } else {
-            (first, None)
-        };
-        files.push(FileChange { path, from, change });
-    }
-    Ok(files)
+    std::iter::from_fn(|| Some(record(fields.next()?, &mut fields))).collect()
+}
+
+/// One file of `--name-status -z`, after its `code`: its path, or the old and the new one.
+fn record<'a>(code: &str, fields: &mut impl Iterator<Item = &'a str>) -> Result<FileChange> {
+    let bad = || Error::Parse(code.to_owned());
+    let change = code.bytes().next().and_then(Change::from_code).ok_or_else(bad)?;
+    let first = fields.next().ok_or_else(bad)?.to_owned();
+    let (path, from) = if matches!(change, Change::Renamed | Change::Copied) {
+        (fields.next().ok_or_else(bad)?.to_owned(), Some(first))
+    } else {
+        (first, None)
+    };
+    Ok(FileChange { path, from, change })
 }
 
 #[cfg(test)]
