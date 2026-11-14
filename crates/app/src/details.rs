@@ -197,7 +197,10 @@ fn commit(ui: &mut Ui, ws: &mut Workspace, id: ObjectId, actions: &mut Vec<Actio
     let (summary, body) = commit.message.split_once('\n').unwrap_or((&commit.message, ""));
     ui.label(RichText::new(summary).strong().size(15.0));
     if !body.trim().is_empty() {
-        ui.label(body.trim());
+        // A long message scrolls, so that the changed files stay in reach below it.
+        let height = ui.available_height() / 3.0;
+        let message = egui::ScrollArea::vertical().id_salt("message").max_height(height).auto_shrink([false, true]);
+        message.show(ui, |ui| ui.label(body.trim()));
     }
     ui.add_space(6.0);
     ui.horizontal(|ui| {

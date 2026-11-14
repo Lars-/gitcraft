@@ -1162,3 +1162,14 @@ fn follow_a_file_through_its_history_and_a_rename() {
     harness.get_by_label("History of file.txt");
     harness.get_by_label("1 commit");
 }
+
+#[test]
+fn the_changed_files_stay_in_reach_below_a_long_commit_message() {
+    let (_dir, git) = repo();
+    let body: Vec<_> = (1..=100).map(|n| format!("Line {n} of a long story")).collect();
+    commit(&git, &format!("A long story\n\n{}", body.join("\n")));
+    let harness = app(Some(git.dir()));
+    harness.get_by_label_contains("Line 100 of a long story");
+    let file = harness.get_by_label("file.txt").rect();
+    assert!(file.bottom() <= 720.0, "the changed file is at {file:?}, below the window");
+}
