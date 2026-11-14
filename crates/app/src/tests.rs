@@ -1097,3 +1097,68 @@ fn a_rebase_plan_starts_again_when_its_commits_change_outside() {
     assert!(harness.state().workspace().unwrap().plan.is_none());
     harness.get_by_label_contains("Nothing to rebase onto");
 }
+
+/// Whether the history of a file is in the centre and read.
+fn history_read(harness: &Harness<'_, App>) -> bool {
+    harness.state().workspace().unwrap().history.as_ref().is_some_and(|history| history.reading.is_none())
+}
+
+/// Whether the commit `summary` is shown and picked in the history.
+fn picked(harness: &Harness<'_, App>, summary: &str) -> bool {
+    harness.get_by_role_and_label(Role::Button, summary).accesskit_node().toggled()
+        == Some(egui::accesskit::Toggled::True)
+}
+
+#[test]
+fn follow_a_file_through_its_history_and_a_rename() {
+    let (_dir, git) = repo();
+    git.run(&["mv", "file.txt", "renamed.txt"]).unwrap();
+    git.apply(&Op::Commit { message: "Rename the file".into(), amend: false }).unwrap();
+    fs::write(git.dir().join("other.txt"), "other").unwrap();
+    git.apply(&Op::Stage(vec!["other.txt".into()])).unwrap();
+    git.apply(&Op::Commit { message: "Another file".into(), amend: false }).unwrap();
+    fs::write(git.dir().join("renamed.txt"), "Changed since").unwrap();
+    let mut harness = app(Some(git.dir()));
+
+    // From the uncommitted changes, it starts at HEAD and shows the newest commit that changed it.
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    menu(&mut harness, "renamed.txt", &["File history"]);
+    wait_until(&mut harness, "the history", history_read);
+    harness.run();
+    harness.get_by_label("History of renamed.txt");
+    harness.get_by_label("2 commits");
+    assert!(harness.query_by_role_and_label(Role::Button, "Another file").is_none());
+    assert!(picked(&harness, "Rename the file"));
+    let ws = harness.state().workspace().unwrap();
+    let file = ws.open_file.as_ref().expect("a diff is open");
+    assert!(file.diff.header.iter().any(|line| line == "rename from file.txt"), "{:?}", file.diff.header);
+    harness.get_by_label("Renamed from file.txt, nothing else changed");
+    assert_eq!(ws.selection, Some(Selection::Commit(ws.snapshot.history.ids[1])));
+
+    // Before the rename, it was another file.
+    harness.get_by_role_and_label(Role::Button, "First commit").click();
+    settle(&mut harness);
+    assert!(picked(&harness, "First commit"));
+    assert_eq!(harness.state().workspace().unwrap().open_file.as_ref().unwrap().source.path(), "file.txt");
+
+    // A commit made outside joins it.
+    git.apply(&Op::Stage(vec!["renamed.txt".into()])).unwrap();
+    git.apply(&Op::Commit { message: "Change it".into(), amend: false }).unwrap();
+    wait_until(&mut harness, "the new commit", |h| h.query_by_label("3 commits").is_some());
+    harness.get_by_role_and_label(Role::Button, "Change it");
+
+    harness.get_by_label("Close").click();
+    settle(&mut harness);
+    let ws = harness.state().workspace().unwrap();
+    assert!(ws.history.is_none() && ws.open_file.is_none());
+
+    // From a commit, it starts there.
+    harness.get_by_role_and_label(Role::Button, "First commit").click();
+    settle(&mut harness);
+    menu(&mut harness, "file.txt", &["File history"]);
+    wait_until(&mut harness, "the history", history_read);
+    harness.run();
+    harness.get_by_label("History of file.txt");
+    harness.get_by_label("1 commit");
+}

@@ -251,6 +251,29 @@ fn the_diff_of_a_file_a_commit_renamed_shows_only_what_changed() {
 }
 
 #[test]
+fn the_history_of_a_file_follows_it_through_renames() {
+    let (_dir, git) = repo();
+    let first = commit(&git, "old.txt", "1\n2\n3\n4\n5\n", "Numbers");
+    commit(&git, "other.txt", "x\n", "Something else");
+    git.run(&["mv", "old.txt", "new.txt"]).unwrap();
+    let renamed = commit(&git, "new.txt", "1\n2\n3\n4\n5\n6\n", "Rename and count on");
+    let last = commit(&git, "new.txt", "1\n2\n3\n4\n5\n6\n7\n", "Seven");
+
+    let history = |at: &str| {
+        let history = status::file_history(&git, at, "new.txt").unwrap();
+        history.into_iter().map(|(id, file)| (id.to_string(), file.path, file.from, file.change)).collect::<Vec<_>>()
+    };
+    let renamed_entry = (renamed.clone(), "new.txt".to_owned(), Some("old.txt".to_owned()), Change::Renamed);
+    let first_entry = (first, "old.txt".to_owned(), None, Change::Added);
+    assert_eq!(
+        history("HEAD"),
+        [(last, "new.txt".to_owned(), None, Change::Modified), renamed_entry.clone(), first_entry.clone()]
+    );
+    // From an older commit, it starts there.
+    assert_eq!(history(&renamed), [renamed_entry, first_entry]);
+}
+
+#[test]
 fn commit_amend_branch_and_checkout() {
     let (_dir, git) = repo();
     commit(&git, "a.txt", "a\n", "First");

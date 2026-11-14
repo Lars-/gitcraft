@@ -51,6 +51,9 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
   that name comes first, so typing its name takes you there. Large histories are searched as you
   type, without the window waiting.
 - **Commits**: message, author, parents and the files they changed, with the diff of each file.
+- **File history**: right-click a file, in a commit or in your changes, for every commit that
+  changed it, newest first, also from before it was renamed. Pick one to see its diff of the file,
+  with the commit beside it. Following a file through a large history happens in the background.
 - **Staging**: stage or unstage files, whole hunks or single lines, then commit or amend.
 - **Discard**: throw away the changes to a file, a hunk or single lines, after you confirm.
 - **Branches and tags**: create, check out, merge, rebase, delete, from the sidebar or a right click.
