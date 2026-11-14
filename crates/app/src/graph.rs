@@ -200,7 +200,7 @@ fn drag_and_drop(
 }
 
 /// Draws one line of text in `rect`, cut off with an ellipsis when it does not fit.
-fn put(ui: &Ui, rect: Rect, text: impl Into<egui::WidgetText>) {
+pub fn put(ui: &Ui, rect: Rect, text: impl Into<egui::WidgetText>) {
     let galley = text.into().into_galley(ui, Some(egui::TextWrapMode::Truncate), rect.width(), egui::TextStyle::Body);
     let at = rect.left_center() - Vec2::Y * galley.size().y / 2.0;
     ui.painter().with_clip_rect(rect).galley(at, galley, ui.visuals().text_color());

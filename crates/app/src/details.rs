@@ -1,6 +1,6 @@
 //! The panel on the right: the uncommitted changes with the commit form, or a commit.
 
-use eframe::egui::{self, Button, Layout, RichText, Role, TextEdit, Ui, WidgetInfo};
+use eframe::egui::{self, Button, Layout, Response, RichText, Role, TextEdit, Ui, WidgetInfo};
 use gitcraft_core::ObjectId;
 use gitcraft_core::diff::Source;
 use gitcraft_core::git::Op;
@@ -21,21 +21,32 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
 }
 
 /// One changed file: its kind of change, its path, and `buttons` on the right, right to left.
-/// Returns whether the path was clicked.
-fn file(ui: &mut Ui, change: Change, path: &str, open: bool, buttons: impl FnOnce(&mut Ui)) -> bool {
+/// Returns the path.
+fn file(ui: &mut Ui, change: Change, path: &str, open: bool, buttons: impl FnOnce(&mut Ui)) -> Response {
     let (letter, colour) = theme::change(change);
     ui.horizontal(|ui| {
         ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
             buttons(ui);
             ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.label(RichText::new(letter).monospace().strong().color(colour));
-                ui.add(Button::selectable(open, path).truncate()).clicked()
+                ui.add(Button::selectable(open, path).truncate())
             })
             .inner
         })
         .inner
     })
     .inner
+}
+
+/// The right-click menu of a file: its history from the commit `at` back, if it has one.
+fn file_menu(file: &Response, at: Option<&str>, path: &str, actions: &mut Vec<Action>) {
+    let Some(at) = at else { return };
+    file.context_menu(|ui| {
+        if ui.button("File history").clicked() {
+            actions.push(Action::History { at: at.to_owned(), path: path.to_owned() });
+            ui.close();
+        }
+    });
 }
 
 /// Throwing away the unstaged changes to a file, or the whole file when git does not track it.
@@ -78,6 +89,8 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     let staged: Vec<_> = entries.iter().filter_map(|e| Some((e.staged?, e.path.as_str()))).collect();
     let all = |list: &[(Change, &str)]| list.iter().map(|(_, path)| (*path).to_owned()).collect::<Vec<_>>();
     let half = (ui.available_height() - 210.0).max(120.0) / 2.0;
+    // Before the first commit, no file has a history; one git does not track never has.
+    let head = ws.snapshot.history.head.map(|_| "HEAD");
 
     ui.horizontal(|ui| {
         ui.strong(format!("Unstaged files  {}", unstaged.len()));
@@ -94,7 +107,7 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
             };
             let conflicted = matches!(change, Change::Conflicted { .. });
             let shown = if conflicted { merging == Some(path) } else { open == Some(&source) };
-            let clicked = file(ui, change, path, shown, |ui| {
+            let response = file(ui, change, path, shown, |ui| {
                 // A conflicted file has its buttons on a line of their own, below.
                 if conflicted {
                     return;
@@ -108,6 +121,7 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                     actions.push(Action::Confirm(discard(change, path)));
                 }
             });
+            file_menu(&response, head.filter(|_| change != Change::Untracked), path, actions);
             if let Change::Conflicted { ours, theirs } = change {
                 let sides = underway.map(|u| [("Ours", "HEAD", ours), ("Theirs", u.theirs, theirs)]);
                 ui.horizontal(|ui| {
@@ -115,7 +129,7 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                     resolve(ui, path, sides, actions);
                 });
             }
-            if clicked {
+            if response.clicked() {
                 actions.push(match change {
                     Change::Conflicted { ours: true, theirs: true } => Action::Resolve(path.into()),
                     // A file one side deleted has no lines to line up.
@@ -135,12 +149,13 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     egui::ScrollArea::vertical().id_salt("staged").max_height(half).auto_shrink([false, true]).show(ui, |ui| {
         for &(change, path) in &staged {
             let source = Source::Staged(path.into());
-            let clicked = file(ui, change, path, open == Some(&source), |ui| {
+            let response = file(ui, change, path, open == Some(&source), |ui| {
                 if ui.small_button("Unstage").clicked() {
                     actions.push(Action::Run(Op::Unstage(vec![path.into()])));
                 }
             });
-            if clicked {
+            file_menu(&response, head, path, actions);
+            if response.clicked() {
                 actions.push(Action::Open(source));
             }
         }
@@ -214,7 +229,9 @@ fn commit(ui: &mut Ui, ws: &mut Workspace, id: ObjectId, actions: &mut Vec<Actio
     egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
         for change in files {
             let source = Source::Commit { commit: sha.clone(), path: change.path.clone(), from: change.from.clone() };
-            if file(ui, change.change, &change.path, open == Some(&source), |_| {}) {
+            let response = file(ui, change.change, &change.path, open == Some(&source), |_| {});
+            file_menu(&response, Some(&sha), &change.path, actions);
+            if response.clicked() {
                 actions.push(Action::Open(source));
             }
         }

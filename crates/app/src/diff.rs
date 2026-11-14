@@ -31,8 +31,8 @@ fn act(file: &OpenFile, verb: &'static str, what: &str, selected: &dyn Fn(usize,
     Action::Run(Op::ApplyToIndex { patch, reverse })
 }
 
-/// Shows the open file.
-pub fn show(ui: &mut Ui, file: &OpenFile, actions: &mut Vec<Action>) {
+/// Shows the open file, with a way to close it when it fills the centre `alone`.
+pub fn show(ui: &mut Ui, file: &OpenFile, alone: bool, actions: &mut Vec<Action>) {
     let verbs = verbs(&file.source);
     let picked = |h, l| file.lines.contains(&(h, l));
     let lines = theme::count(file.lines.len(), "line");
@@ -45,7 +45,7 @@ pub fn show(ui: &mut Ui, file: &OpenFile, actions: &mut Vec<Action>) {
             Source::Commit { .. } => "",
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("Close").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+            if alone && (ui.button("Close").clicked() || ui.input(|i| i.key_pressed(Key::Escape))) {
                 actions.push(Action::CloseFile);
             }
             for verb in verbs {
@@ -61,7 +61,11 @@ pub fn show(ui: &mut Ui, file: &OpenFile, actions: &mut Vec<Action>) {
         return;
     }
     if file.diff.hunks.is_empty() {
-        ui.weak("No changes");
+        let renamed = file.diff.header.iter().find_map(|line| line.strip_prefix("rename from "));
+        ui.weak(
+            renamed
+                .map_or_else(|| "No changes".to_owned(), |from| format!("Renamed from {from}, nothing else changed")),
+        );
         return;
     }
     let rows: Vec<(usize, Option<usize>)> = file

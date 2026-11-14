@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use gitcraft_core::conflict::{Conflicts, Pick};
 use gitcraft_core::diff::{self, FileDiff, Source};
-use gitcraft_core::git::{Op, Remote, Step};
+use gitcraft_core::git::{Git, Op, Remote, Step};
 use gitcraft_core::repo::{Commit, History, Repo, Underway};
 use gitcraft_core::status::{self, Change, FileChange, Status};
 use gitcraft_core::undo::{self, Undo};
@@ -38,6 +38,15 @@ pub enum Action {
     Next(bool),
     /// Show the diff of a file instead of the graph.
     Open(Source),
+    /// Show the commits that changed a file instead of the graph, from a commit or `HEAD` back.
+    History {
+        /// Where the history starts.
+        at: String,
+        /// The file.
+        path: String,
+    },
+    /// Show the diff of the file in a commit of its history, by row, and the commit beside it.
+    Visit(usize),
     /// Back to the graph.
     CloseFile,
     /// Pick or unpick a line of the open diff for staging.
@@ -210,6 +219,44 @@ impl Merge {
     }
 }
 
+/// Each commit that changed a file, newest first, with what it did to it.
+type Changes = Vec<(ObjectId, FileChange)>;
+
+/// The history of a file in the centre: the commits that changed it, above the diff of the one
+/// picked. It is read in the background, because following a file through a large history takes
+/// a while.
+#[derive(Debug)]
+pub struct FileHistory {
+    /// The file, under the name it has where the history starts.
+    pub path: String,
+    /// Where it starts: a commit, or `HEAD` to go along with new commits.
+    pub at: String,
+    /// Each commit that changed the file.
+    pub commits: Changes,
+    /// The history being read, if it is.
+    pub reading: Option<Receiver<Result<Changes, String>>>,
+}
+
+impl FileHistory {
+    /// The diff of the file in the commit in `row`.
+    pub fn source(&self, row: usize) -> Source {
+        let (id, file) = &self.commits[row];
+        Source::Commit { commit: id.to_string(), path: file.path.clone(), from: file.from.clone() }
+    }
+
+    /// Reads the history, in the background.
+    fn read(&mut self, ctx: &egui::Context, git: &Git) {
+        let (send, reading) = mpsc::channel();
+        let (git, ctx, at, path) = (git.clone(), ctx.clone(), self.at.clone(), self.path.clone());
+        std::thread::spawn(move || {
+            // Sending fails only when the history was closed in the meantime.
+            let _ = send.send(status::file_history(&git, &at, &path).map_err(|error| error.to_string()));
+            ctx.request_repaint();
+        });
+        self.reading = Some(reading);
+    }
+}
+
 /// An interactive rebase being put together in the centre.
 #[derive(Debug)]
 pub struct Plan {
@@ -336,6 +383,8 @@ pub struct Workspace {
     pub merge: Option<Merge>,
     /// The interactive rebase in the centre, if any.
     pub plan: Option<Plan>,
+    /// The history of a file in the centre, if any.
+    pub history: Option<FileHistory>,
     /// The commit summary being written.
     pub summary: String,
     /// The rest of the commit message.
@@ -377,6 +426,7 @@ impl Workspace {
             open_file: None,
             merge: None,
             plan: None,
+            history: None,
             summary: String::new(),
             description: String::new(),
             amend: false,
@@ -458,16 +508,20 @@ impl Workspace {
                 ctx.request_repaint();
             }
             Action::Next(down) => self.reveal_row(ctx, self.search.next(self.selected_commit(), down)),
-            Action::Open(source) => match diff::read(&self.repo.git, &source) {
-                Ok(diff) => {
-                    (self.merge, self.plan) = (None, None);
-                    self.open_file = Some(OpenFile { source, diff, lines: BTreeSet::new() });
-                }
-                Err(error) => self.error = Some(error.to_string()),
-            },
+            Action::Open(source) => {
+                self.history = None;
+                self.open(source);
+            }
+            Action::History { at, path } => {
+                let mut history = FileHistory { path, at, commits: Vec::new(), reading: None };
+                history.read(ctx, &self.repo.git);
+                (self.open_file, self.merge, self.plan, self.history) = (None, None, None, Some(history));
+            }
+            Action::Visit(row) => self.visit(ctx, row),
             Action::Resolve(path) => match Conflicts::read(&self.repo.git, &path) {
                 Ok(conflicts) => {
-                    (self.merge, self.open_file, self.plan) = (Some(Merge::new(path, conflicts)), None, None);
+                    (self.merge, self.open_file, self.plan, self.history) =
+                        (Some(Merge::new(path, conflicts)), None, None, None);
                 }
                 Err(error) => self.error = Some(error.to_string()),
             },
@@ -510,7 +564,7 @@ impl Workspace {
                 let step = plan.steps.remove(from);
                 plan.steps.insert(to, step);
             }),
-            Action::CloseFile => (self.open_file, self.merge, self.plan) = (None, None, None),
+            Action::CloseFile => (self.open_file, self.merge, self.plan, self.history) = (None, None, None, None),
             Action::ToggleLine(hunk, line) => {
                 if let Some(file) = &mut self.open_file
                     && !file.lines.remove(&(hunk, line))
@@ -536,12 +590,51 @@ impl Workspace {
         }
     }
 
+    /// Shows the diff of a file in the centre.
+    fn open(&mut self, source: Source) {
+        match diff::read(&self.repo.git, &source) {
+            Ok(diff) => {
+                (self.merge, self.plan) = (None, None);
+                self.open_file = Some(OpenFile { source, diff, lines: BTreeSet::new() });
+            }
+            Err(error) => self.error = Some(error.to_string()),
+        }
+    }
+
+    /// Shows the diff of the file in the centre in the commit in `row` of its history, and the
+    /// commit beside it.
+    fn visit(&mut self, ctx: &egui::Context, row: usize) {
+        let Some(history) = &self.history else { return };
+        let (id, source) = (history.commits[row].0, history.source(row));
+        self.apply(ctx, Action::Reveal(Selection::Commit(id)));
+        self.open(source);
+    }
+
+    /// Takes in the history of the file in the centre once it is read, and shows the diff of its
+    /// newest commit when none is open.
+    fn take_history(&mut self, ctx: &egui::Context) {
+        let Some(history) = &mut self.history else { return };
+        let read = match history.reading.as_ref().map(Receiver::try_recv) {
+            None | Some(Err(TryRecvError::Empty)) => return,
+            Some(Ok(read)) => read,
+            Some(Err(TryRecvError::Disconnected)) => Err("Reading the history stopped unexpectedly".to_owned()),
+        };
+        history.reading = None;
+        match read {
+            Ok(commits) => history.commits = commits,
+            Err(error) => self.error = Some(error),
+        }
+        if self.open_file.is_none() && !history.commits.is_empty() {
+            self.visit(ctx, 0);
+        }
+    }
+
     /// Puts together an interactive rebase onto `onto`, in the centre.
     fn plan(&mut self, onto: String) -> Option<&Plan> {
         match self.repo.git.rebase_plan(&onto) {
             Ok(listed) if listed.is_empty() => self.error = Some(format!("Nothing to rebase onto {onto:.7}")),
             Ok(listed) => {
-                (self.open_file, self.merge) = (None, None);
+                (self.open_file, self.merge, self.history) = (None, None, None);
                 return Some(self.plan.insert(Plan::new(onto, listed)));
             }
             Err(error) => self.error = Some(error.to_string()),
@@ -655,6 +748,7 @@ impl Workspace {
 
     /// Takes in the result of the background job, once it is there, and starts the next.
     pub fn poll(&mut self, ctx: &egui::Context) {
+        self.take_history(ctx);
         let Some(job) = &self.job else { return };
         let (failed, snapshot, watch) = match job.outcome.try_recv() {
             Err(TryRecvError::Empty) => return,
@@ -683,6 +777,10 @@ impl Workspace {
                 let (old, new) = (&self.snapshot.history, &snapshot.history);
                 if old.ids != new.ids || old.labels != new.labels {
                     (self.search.rows, self.search.done) = (Vec::new(), 0);
+                    // A history from `HEAD` goes along with new commits.
+                    if let Some(history) = self.history.as_mut().filter(|history| history.at == "HEAD") {
+                        history.read(ctx, &self.repo.git);
+                    }
                 }
                 self.snapshot = snapshot;
             }

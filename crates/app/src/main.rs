@@ -5,6 +5,7 @@ mod app;
 mod details;
 mod diff;
 mod graph;
+mod history;
 mod merge;
 mod rebase;
 mod sidebar;
