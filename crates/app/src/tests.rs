@@ -1097,3 +1097,14 @@ fn a_rebase_plan_starts_again_when_its_commits_change_outside() {
     assert!(harness.state().workspace().unwrap().plan.is_none());
     harness.get_by_label_contains("Nothing to rebase onto");
 }
+
+#[test]
+fn the_changed_files_stay_in_reach_below_a_long_commit_message() {
+    let (_dir, git) = repo();
+    let body: Vec<_> = (1..=100).map(|n| format!("Line {n} of a long story")).collect();
+    commit(&git, &format!("A long story\n\n{}", body.join("\n")));
+    let harness = app(Some(git.dir()));
+    harness.get_by_label_contains("Line 100 of a long story");
+    let file = harness.get_by_label("file.txt").rect();
+    assert!(file.bottom() <= 720.0, "the changed file is at {file:?}, below the window");
+}
