@@ -54,6 +54,10 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
 - **File history**: right-click a file, in a commit or in your changes, for every commit that
   changed it, newest first, also from before it was renamed. Pick one to see its diff of the file,
   with the commit beside it. Following a file through a large history happens in the background.
+- **Blame**: right-click a file for who last changed each line, and in which commit, beside the
+  lines. From your changes it is the file as it is now, with the lines you have not committed yet,
+  and it keeps up as you edit; from a commit it is the file in that commit. Click a line to see
+  its commit and every other line it changed.
 - **Staging**: stage or unstage files, whole hunks or single lines, then commit or amend.
 - **Discard**: throw away the changes to a file, a hunk or single lines, after you confirm.
 - **Branches and tags**: create, check out, merge, rebase, delete, from the sidebar or a right click.

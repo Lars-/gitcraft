@@ -11,7 +11,7 @@ use gitcraft_core::status::Change;
 
 use crate::app::{Action, Confirm, Prompt, Selection, Workspace};
 use crate::start::Start;
-use crate::{details, diff, graph, history, merge, rebase, sidebar, theme};
+use crate::{blame, details, diff, graph, history, merge, rebase, sidebar, theme};
 
 const RECENT: usize = 10;
 
@@ -212,6 +212,8 @@ fn workspace(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
             rebase::show(ui, ws, actions);
         } else if ws.history.is_some() {
             history::show(ui, ws, actions);
+        } else if ws.blame.is_some() {
+            blame::show(ui, ws, actions);
         } else if let Some(file) = &ws.open_file {
             diff::show(ui, file, true, actions);
         } else {

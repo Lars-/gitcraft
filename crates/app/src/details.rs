@@ -38,12 +38,18 @@ fn file(ui: &mut Ui, change: Change, path: &str, open: bool, buttons: impl FnOnc
     .inner
 }
 
-/// The right-click menu of a file: its history from the commit `at` back, if it has one.
-fn file_menu(file: &Response, at: Option<&str>, path: &str, actions: &mut Vec<Action>) {
+/// The right-click menu of a file, as `change` left it in the commit `at`, if it has a history:
+/// its history from there back, and who last changed each line while the file is there. From
+/// `HEAD`, which the uncommitted changes go from, the blame is of the file in the working tree.
+fn file_menu(file: &Response, at: Option<&str>, path: &str, change: Change, actions: &mut Vec<Action>) {
     let Some(at) = at else { return };
     file.context_menu(|ui| {
         if ui.button("File history").clicked() {
             actions.push(Action::History { at: at.to_owned(), path: path.to_owned() });
+            ui.close();
+        }
+        if change != Change::Deleted && ui.button("Blame").clicked() {
+            actions.push(Action::Blame { at: (at != "HEAD").then(|| at.to_owned()), path: path.to_owned() });
             ui.close();
         }
     });
@@ -121,7 +127,7 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                     actions.push(Action::Confirm(discard(change, path)));
                 }
             });
-            file_menu(&response, head.filter(|_| change != Change::Untracked), path, actions);
+            file_menu(&response, head.filter(|_| change != Change::Untracked), path, change, actions);
             if let Change::Conflicted { ours, theirs } = change {
                 let sides = underway.map(|u| [("Ours", "HEAD", ours), ("Theirs", u.theirs, theirs)]);
                 ui.horizontal(|ui| {
@@ -154,7 +160,7 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                     actions.push(Action::Run(Op::Unstage(vec![path.into()])));
                 }
             });
-            file_menu(&response, head, path, actions);
+            file_menu(&response, head, path, change, actions);
             if response.clicked() {
                 actions.push(Action::Open(source));
             }
@@ -230,7 +236,7 @@ fn commit(ui: &mut Ui, ws: &mut Workspace, id: ObjectId, actions: &mut Vec<Actio
         for change in files {
             let source = Source::Commit { commit: sha.clone(), path: change.path.clone(), from: change.from.clone() };
             let response = file(ui, change.change, &change.path, open == Some(&source), |_| {});
-            file_menu(&response, Some(&sha), &change.path, actions);
+            file_menu(&response, Some(&sha), &change.path, change.change, actions);
             if response.clicked() {
                 actions.push(Action::Open(source));
             }

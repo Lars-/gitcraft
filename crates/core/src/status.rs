@@ -1,4 +1,5 @@
-//! What changed: in the working tree (`git status`), in a commit, and to a file over time.
+//! What changed: in the working tree (`git status`), in a commit, and to a file over time, down to
+//! who last changed each line.
 
 use crate::git::Git;
 use crate::{Error, ObjectId, Result};
@@ -191,6 +192,29 @@ pub fn file_history(git: &Git, at: &str, path: &str) -> Result<Vec<(ObjectId, Fi
     Ok(history)
 }
 
+/// Each line of `path` with the commit that last changed it, in the commit `at`, or with `None` as
+/// the file is in the working tree, where a line that is not committed yet has the null id.
+pub fn blame(git: &Git, at: Option<&str>, path: &str) -> Result<Vec<(ObjectId, String)>> {
+    parse_blame(&git.run(&[&["blame", "--porcelain"][..], at.as_slice(), &["--", path]].concat())?)
+}
+
+/// Parses `git blame --porcelain`: for each line a header that starts with the commit, the first
+/// time a commit comes up lines about it, and then the line itself after a tab.
+pub fn parse_blame(output: &str) -> Result<Vec<(ObjectId, String)>> {
+    let mut lines = Vec::new();
+    let mut commit = None;
+    for line in output.split_terminator('\n') {
+        let bad = || Error::Parse(line.to_owned());
+        if let Some(text) = line.strip_prefix('\t') {
+            lines.push((commit.take().ok_or_else(bad)?, text.to_owned()));
+        } else if commit.is_none() {
+            let sha = line.split(' ').next().unwrap_or_default();
+            commit = Some(ObjectId::from_hex(sha.as_bytes()).map_err(|_| bad())?);
+        }
+    }
+    Ok(lines)
+}
+
 /// Parses `--name-status -z`.
 pub fn parse_name_status(output: &str) -> Result<Vec<FileChange>> {
     let mut fields = output.split('\0').filter(|f| !f.is_empty());
@@ -265,6 +289,8 @@ mod tests {
         assert!(Status::parse("u UU N... 100644\0").is_err());
         assert!(Status::parse("# branch.ab +x -1\0").is_err());
         assert!(parse_name_status("Z\0path\0").is_err());
+        assert!(parse_blame("\tno header\n").is_err());
+        assert!(parse_blame("not-a-sha 1 1 1\n\tline\n").is_err());
     }
 
     #[test]
@@ -277,6 +303,34 @@ mod tests {
                 FileChange { path: "new.rs".into(), from: Some("old.rs".into()), change: Change::Renamed },
                 FileChange { path: "gone.rs".into(), from: None, change: Change::Deleted },
             ]
+        );
+    }
+
+    #[test]
+    fn parses_blame() {
+        let one = "1".repeat(40);
+        let two = "2".repeat(40);
+        let output = [
+            &format!("{one} 1 1 2"),
+            "author Tess Ter",
+            "summary First",
+            "filename a.txt",
+            "\tfirst line",
+            &format!("{one} 2 2"),
+            "\t\tindented, with a tab\r",
+            &format!("{two} 1 3 1"),
+            "author Other",
+            "summary\tlooks like a line",
+            "previous 1111111111111111111111111111111111111111 a.txt",
+            "filename a.txt",
+            "\t",
+            "",
+        ]
+        .join("\n");
+        let [one, two] = [one, two].map(|sha| ObjectId::from_hex(sha.as_bytes()).unwrap());
+        assert_eq!(
+            parse_blame(&output).unwrap(),
+            [(one, "first line".into()), (one, "\tindented, with a tab\r".into()), (two, String::new())]
         );
     }
 }

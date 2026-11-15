@@ -46,16 +46,16 @@ drive it the way a user does, and keeps every benchmark as fast as before.
       another name or URL, or remove it
 - [x] Search the graph by message, author or SHA, and jump to any branch or tag by its name
 - [x] File history: the commits that changed a file, followed through renames, each with its diff
+- [x] Blame: who last changed each line of a file, and in which commit
 
 ## Next
 
-1. **Blame**: who last changed each line of a file, and in which commit.
-2. **Better diffs**: side by side, word-level changes, syntax colouring, images.
-3. **Keyboard**: shortcuts for everything, and a command palette.
-4. **Settings**: light and dark theme, font size, date format, default pull mode.
-5. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
+1. **Better diffs**: side by side, word-level changes, syntax colouring, images.
+2. **Keyboard**: shortcuts for everything, and a command palette.
+3. **Settings**: light and dark theme, font size, date format, default pull mode.
+4. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
    over the network).
-6. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
+5. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
    (AppImage, .deb, Flatpak), signed where the platform expects it.
 
 ## After 1.0

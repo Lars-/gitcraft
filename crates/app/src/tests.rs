@@ -1163,6 +1163,77 @@ fn follow_a_file_through_its_history_and_a_rename() {
     harness.get_by_label("1 commit");
 }
 
+/// Whether the blame of a file is in the centre and read.
+fn blame_read(harness: &Harness<'_, App>) -> bool {
+    harness.state().workspace().unwrap().blame.as_ref().is_some_and(|blame| blame.reading.is_none())
+}
+
+#[test]
+fn blame_tells_which_commit_last_changed_each_line() {
+    let (_dir, git) = repo();
+    let change = |text: &str, message: &str| {
+        fs::write(git.dir().join("file.txt"), text).unwrap();
+        git.apply(&Op::Stage(vec!["file.txt".into()])).unwrap();
+        git.apply(&Op::Commit { message: message.into(), amend: false }).unwrap();
+    };
+    change("one\ntwo\nthree\n", "Count to three");
+    git.run(&["config", "user.name", "Otto"]).unwrap();
+    change("one\nTWO\nthree\n", "Shout two");
+    fs::write(git.dir().join("file.txt"), "one\nTWO\nthree\nfour\n").unwrap();
+    let mut harness = app(Some(git.dir()));
+
+    // From the uncommitted changes, it is the file in the working tree.
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    menu(&mut harness, "file.txt", &["Blame"]);
+    wait_until(&mut harness, "the blame", blame_read);
+    harness.run();
+    for label in ["Blame of file.txt", "in the working tree", "4 lines", "Line 1: one (Count to three)"] {
+        harness.get_by_label(label);
+    }
+    harness.get_by_label("Line 3: three (Count to three)");
+    harness.get_by_label("Line 4: four (Not committed yet)");
+
+    // A line shows the commit that changed it, and the other lines it changed.
+    harness.get_by_label("Line 2: TWO (Shout two)").click();
+    settle(&mut harness);
+    assert!(picked(&harness, "Line 2: TWO (Shout two)"));
+    assert!(!picked(&harness, "Line 1: one (Count to three)"));
+    harness.get_by_label("Otto <tess@example.com>");
+    let ws = harness.state().workspace().unwrap();
+    assert_eq!(ws.selection, Some(Selection::Commit(ws.snapshot.history.ids[0])));
+
+    // What changes outside shows up, before and after it is committed.
+    fs::write(git.dir().join("file.txt"), "one\nTWO\nthree\nfour\nfive\n").unwrap();
+    wait_until(&mut harness, "the new line", |h| h.query_by_label("Line 5: five (Not committed yet)").is_some());
+    change("one\nTWO\nthree\nfour\nfive\n", "Count on");
+    wait_until(&mut harness, "the new commit", |h| h.query_by_label("Line 5: five (Count on)").is_some());
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    assert!(harness.state().workspace().unwrap().blame.is_none());
+
+    // From a commit, it is the file in that commit.
+    harness.get_by_role_and_label(Role::Button, "Count to three").click();
+    settle(&mut harness);
+    menu(&mut harness, "file.txt", &["Blame"]);
+    wait_until(&mut harness, "the blame", blame_read);
+    harness.run();
+    harness.get_by_label(&format!("at {}", &rev(&git, "HEAD~2")[..7]));
+    harness.get_by_label("Line 2: two (Count to three)");
+    harness.get_by_label("Close").click();
+    settle(&mut harness);
+
+    // A file a commit deleted has a history, but no lines to blame.
+    git.apply(&Op::Remove(vec!["file.txt".into()])).unwrap();
+    git.apply(&Op::Commit { message: "Delete the file".into(), amend: false }).unwrap();
+    wait_until(&mut harness, "the commit", |h| h.query_by_role_and_label(Role::Button, "Delete the file").is_some());
+    harness.get_by_role_and_label(Role::Button, "Delete the file").click();
+    settle(&mut harness);
+    harness.get_by_label("file.txt").click_secondary();
+    wait_until(&mut harness, "the menu", |h| h.query_by_label("File history").is_some());
+    assert!(harness.query_by_label("Blame").is_none());
+}
+
 #[test]
 fn the_changed_files_stay_in_reach_below_a_long_commit_message() {
     let (_dir, git) = repo();

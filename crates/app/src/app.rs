@@ -47,6 +47,13 @@ pub enum Action {
     },
     /// Show the diff of the file in a commit of its history, by row, and the commit beside it.
     Visit(usize),
+    /// Show who last changed each line of a file instead of the graph.
+    Blame {
+        /// The commit whose file it is, or `None` for the file in the working tree.
+        at: Option<String>,
+        /// The file.
+        path: String,
+    },
     /// Back to the graph.
     CloseFile,
     /// Pick or unpick a line of the open diff for staging.
@@ -222,6 +229,39 @@ impl Merge {
 /// Each commit that changed a file, newest first, with what it did to it.
 type Changes = Vec<(ObjectId, FileChange)>;
 
+/// Each line of a file, with the commit that last changed it.
+type Lines = Vec<(ObjectId, String)>;
+
+/// Something being read in the background for the centre, if it is: what was read, or what went
+/// wrong.
+type Reading<T> = Option<Receiver<Result<T, String>>>;
+
+/// Runs `read` on a thread of its own, and wakes the window once it is done.
+fn read_in_background<T: Send + 'static>(
+    ctx: &egui::Context,
+    read: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Receiver<Result<T, String>> {
+    let (send, reading) = mpsc::channel();
+    let ctx = ctx.clone();
+    std::thread::spawn(move || {
+        // Sending fails only when what it was read for was closed in the meantime.
+        let _ = send.send(read().map_err(|error| error.to_string()));
+        ctx.request_repaint();
+    });
+    reading
+}
+
+/// What was read in the background, once it is there.
+fn take<T>(reading: &mut Reading<T>) -> Option<Result<T, String>> {
+    let read = match reading.as_ref()?.try_recv() {
+        Err(TryRecvError::Empty) => return None,
+        Ok(read) => read,
+        Err(TryRecvError::Disconnected) => Err("Reading stopped unexpectedly".to_owned()),
+    };
+    *reading = None;
+    Some(read)
+}
+
 /// The history of a file in the centre: the commits that changed it, above the diff of the one
 /// picked. It is read in the background, because following a file through a large history takes
 /// a while.
@@ -234,7 +274,7 @@ pub struct FileHistory {
     /// Each commit that changed the file.
     pub commits: Changes,
     /// The history being read, if it is.
-    pub reading: Option<Receiver<Result<Changes, String>>>,
+    pub reading: Reading<Changes>,
 }
 
 impl FileHistory {
@@ -246,14 +286,31 @@ impl FileHistory {
 
     /// Reads the history, in the background.
     fn read(&mut self, ctx: &egui::Context, git: &Git) {
-        let (send, reading) = mpsc::channel();
-        let (git, ctx, at, path) = (git.clone(), ctx.clone(), self.at.clone(), self.path.clone());
-        std::thread::spawn(move || {
-            // Sending fails only when the history was closed in the meantime.
-            let _ = send.send(status::file_history(&git, &at, &path).map_err(|error| error.to_string()));
-            ctx.request_repaint();
-        });
-        self.reading = Some(reading);
+        let (git, at, path) = (git.clone(), self.at.clone(), self.path.clone());
+        self.reading = Some(read_in_background(ctx, move || status::file_history(&git, &at, &path)));
+    }
+}
+
+/// Who last changed each line of a file, in the centre. It is read in the background, because
+/// git goes back through the history of the file for it.
+#[derive(Debug)]
+pub struct Blame {
+    /// The file.
+    pub path: String,
+    /// The commit whose file it is, or `None` for the file in the working tree, which is read
+    /// again after every change.
+    pub at: Option<String>,
+    /// Each line, with the commit that last changed it; the null id when it is not committed.
+    pub lines: Lines,
+    /// The blame being read, if it is.
+    pub reading: Reading<Lines>,
+}
+
+impl Blame {
+    /// Reads the blame, in the background.
+    fn read(&mut self, ctx: &egui::Context, git: &Git) {
+        let (git, at, path) = (git.clone(), self.at.clone(), self.path.clone());
+        self.reading = Some(read_in_background(ctx, move || status::blame(&git, at.as_deref(), &path)));
     }
 }
 
@@ -385,6 +442,8 @@ pub struct Workspace {
     pub plan: Option<Plan>,
     /// The history of a file in the centre, if any.
     pub history: Option<FileHistory>,
+    /// Who last changed each line of a file, in the centre, if anyone.
+    pub blame: Option<Blame>,
     /// The commit summary being written.
     pub summary: String,
     /// The rest of the commit message.
@@ -427,6 +486,7 @@ impl Workspace {
             merge: None,
             plan: None,
             history: None,
+            blame: None,
             summary: String::new(),
             description: String::new(),
             amend: false,
@@ -509,19 +569,23 @@ impl Workspace {
             }
             Action::Next(down) => self.reveal_row(ctx, self.search.next(self.selected_commit(), down)),
             Action::Open(source) => {
-                self.history = None;
+                (self.history, self.blame) = (None, None);
                 self.open(source);
             }
             Action::History { at, path } => {
-                let mut history = FileHistory { path, at, commits: Vec::new(), reading: None };
+                self.close_centre();
+                let history = self.history.insert(FileHistory { path, at, commits: Vec::new(), reading: None });
                 history.read(ctx, &self.repo.git);
-                (self.open_file, self.merge, self.plan, self.history) = (None, None, None, Some(history));
             }
             Action::Visit(row) => self.visit(ctx, row),
+            Action::Blame { at, path } => {
+                self.close_centre();
+                self.blame.insert(Blame { path, at, lines: Vec::new(), reading: None }).read(ctx, &self.repo.git);
+            }
             Action::Resolve(path) => match Conflicts::read(&self.repo.git, &path) {
                 Ok(conflicts) => {
-                    (self.merge, self.open_file, self.plan, self.history) =
-                        (Some(Merge::new(path, conflicts)), None, None, None);
+                    self.close_centre();
+                    self.merge = Some(Merge::new(path, conflicts));
                 }
                 Err(error) => self.error = Some(error.to_string()),
             },
@@ -543,28 +607,12 @@ impl Workspace {
                     self.apply(ctx, Action::Shift(from, to));
                 }
             }
-            Action::Step(row, step) => {
-                let Some(plan) = &mut self.plan else { return };
-                let id = plan.steps[row].1;
-                // A new message starts from the one it has.
-                if step == Step::Reword && !plan.messages.contains_key(&id) {
-                    match self.commits.get(&self.repo, id) {
-                        Ok(commit) => {
-                            plan.messages.insert(id, commit.message.trim_end().to_owned());
-                        }
-                        Err(error) => {
-                            self.error = Some(error.to_string());
-                            return;
-                        }
-                    }
-                }
-                plan.steps[row].0 = step;
-            }
+            Action::Step(row, step) => self.step(row, step),
             Action::Shift(from, to) => self.plan.iter_mut().for_each(|plan| {
                 let step = plan.steps.remove(from);
                 plan.steps.insert(to, step);
             }),
-            Action::CloseFile => (self.open_file, self.merge, self.plan, self.history) = (None, None, None, None),
+            Action::CloseFile => self.close_centre(),
             Action::ToggleLine(hunk, line) => {
                 if let Some(file) = &mut self.open_file
                     && !file.lines.remove(&(hunk, line))
@@ -590,6 +638,30 @@ impl Workspace {
         }
     }
 
+    /// Sets what the rebase does with the commit in `row` of the plan.
+    fn step(&mut self, row: usize, step: Step) {
+        let Some(plan) = &mut self.plan else { return };
+        let id = plan.steps[row].1;
+        // A new message starts from the one it has.
+        if step == Step::Reword && !plan.messages.contains_key(&id) {
+            match self.commits.get(&self.repo, id) {
+                Ok(commit) => {
+                    plan.messages.insert(id, commit.message.trim_end().to_owned());
+                }
+                Err(error) => {
+                    self.error = Some(error.to_string());
+                    return;
+                }
+            }
+        }
+        plan.steps[row].0 = step;
+    }
+
+    /// Back to the graph in the centre.
+    fn close_centre(&mut self) {
+        (self.open_file, self.merge, self.plan, self.history, self.blame) = (None, None, None, None, None);
+    }
+
     /// Shows the diff of a file in the centre.
     fn open(&mut self, source: Source) {
         match diff::read(&self.repo.git, &source) {
@@ -610,22 +682,28 @@ impl Workspace {
         self.open(source);
     }
 
-    /// Takes in the history of the file in the centre once it is read, and shows the diff of its
-    /// newest commit when none is open.
-    fn take_history(&mut self, ctx: &egui::Context) {
-        let Some(history) = &mut self.history else { return };
-        let read = match history.reading.as_ref().map(Receiver::try_recv) {
-            None | Some(Err(TryRecvError::Empty)) => return,
-            Some(Ok(read)) => read,
-            Some(Err(TryRecvError::Disconnected)) => Err("Reading the history stopped unexpectedly".to_owned()),
-        };
-        history.reading = None;
-        match read {
-            Ok(commits) => history.commits = commits,
-            Err(error) => self.error = Some(error),
+    /// Takes in the history or the blame of the file in the centre once it is read. A history
+    /// shows the diff of its newest commit when none is open; a blame that failed, as when the
+    /// file is gone, closes.
+    fn take_reading(&mut self, ctx: &egui::Context) {
+        if let Some(history) = &mut self.history
+            && let Some(read) = take(&mut history.reading)
+        {
+            match read {
+                Ok(commits) => history.commits = commits,
+                Err(error) => self.error = Some(error),
+            }
+            if self.open_file.is_none() && !history.commits.is_empty() {
+                self.visit(ctx, 0);
+            }
         }
-        if self.open_file.is_none() && !history.commits.is_empty() {
-            self.visit(ctx, 0);
+        if let Some(blame) = &mut self.blame
+            && let Some(read) = take(&mut blame.reading)
+        {
+            match read {
+                Ok(lines) => blame.lines = lines,
+                Err(error) => (self.blame, self.error) = (None, Some(error)),
+            }
         }
     }
 
@@ -634,7 +712,7 @@ impl Workspace {
         match self.repo.git.rebase_plan(&onto) {
             Ok(listed) if listed.is_empty() => self.error = Some(format!("Nothing to rebase onto {onto:.7}")),
             Ok(listed) => {
-                (self.open_file, self.merge, self.history) = (None, None, None);
+                self.close_centre();
                 return Some(self.plan.insert(Plan::new(onto, listed)));
             }
             Err(error) => self.error = Some(error.to_string()),
@@ -748,7 +826,7 @@ impl Workspace {
 
     /// Takes in the result of the background job, once it is there, and starts the next.
     pub fn poll(&mut self, ctx: &egui::Context) {
-        self.take_history(ctx);
+        self.take_reading(ctx);
         let Some(job) = &self.job else { return };
         let (failed, snapshot, watch) = match job.outcome.try_recv() {
             Err(TryRecvError::Empty) => return,
@@ -781,6 +859,10 @@ impl Workspace {
                     if let Some(history) = self.history.as_mut().filter(|history| history.at == "HEAD") {
                         history.read(ctx, &self.repo.git);
                     }
+                }
+                // Any change may be to the file in the working tree, or to the commits behind it.
+                if let Some(blame) = self.blame.as_mut().filter(|blame| blame.at.is_none()) {
+                    blame.read(ctx, &self.repo.git);
                 }
                 self.snapshot = snapshot;
             }
