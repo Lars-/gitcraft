@@ -274,6 +274,29 @@ fn the_history_of_a_file_follows_it_through_renames() {
 }
 
 #[test]
+fn blame_tells_which_commit_last_changed_each_line() {
+    let (_dir, git) = repo();
+    let first = commit(&git, "old.txt", "one\ntwo\nthree\n", "Count");
+    git.run(&["mv", "old.txt", "new.txt"]).unwrap();
+    let second = commit(&git, "new.txt", "one\nTWO\nthree\n", "Rename and shout");
+    write(&git, "new.txt", "one\nTWO\nthree\nfour\n");
+
+    let blame = |at: Option<&str>, path: &str| {
+        let lines = status::blame(&git, at, path).unwrap();
+        lines.into_iter().map(|(id, text)| (id.to_string(), text)).collect::<Vec<_>>()
+    };
+    let line = |sha: &str, text: &str| (sha.to_owned(), text.to_owned());
+    let committed = [line(&first, "one"), line(&second, "TWO"), line(&first, "three")];
+    // Through the rename.
+    assert_eq!(blame(Some("HEAD"), "new.txt"), committed);
+    // In the working tree, a line not committed yet has no commit.
+    assert_eq!(blame(None, "new.txt"), [&committed[..], &[line(&"0".repeat(40), "four")]].concat());
+    // In an older commit, as it was there.
+    assert_eq!(blame(Some(&first), "old.txt"), [line(&first, "one"), line(&first, "two"), line(&first, "three")]);
+    assert!(status::blame(&git, Some(&first), "new.txt").is_err(), "the file is not in that commit");
+}
+
+#[test]
 fn commit_amend_branch_and_checkout() {
     let (_dir, git) = repo();
     commit(&git, "a.txt", "a\n", "First");
