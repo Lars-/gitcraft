@@ -51,6 +51,8 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
   that name comes first, so typing its name takes you there. Large histories are searched as you
   type, without the window waiting.
 - **Commits**: message, author, parents and the files they changed, with the diff of each file.
+- **Diffs**: in a line that changed, the words that changed stand out, so a renamed variable or a
+  new argument is easy to spot.
 - **File history**: right-click a file, in a commit or in your changes, for every commit that
   changed it, newest first, also from before it was renamed. Pick one to see its diff of the file,
   with the commit beside it. Following a file through a large history happens in the background.

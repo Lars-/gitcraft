@@ -14,6 +14,7 @@ use tempfile::TempDir;
 
 use crate::app::{Action, Selection};
 use crate::start::percent;
+use crate::theme;
 use crate::ui::{App, KEYS};
 
 /// A repository with one commit, with the tester's own git config kept out of the way.
@@ -314,6 +315,36 @@ fn discarding_an_open_untracked_file_deletes_it_and_closes_it() {
     let ws = harness.state().workspace().unwrap();
     assert!(ws.open_file.is_none(), "the diff of the deleted file closes");
     assert_eq!(ws.error, None);
+}
+
+/// The parts of the text on screen that are painted on `background`.
+fn painted_on(harness: &Harness<'_, App>, background: egui::Color32) -> Vec<String> {
+    let jobs = harness.output().shapes.iter().filter_map(|clipped| match &clipped.shape {
+        egui::Shape::Text(text) => Some(&text.galley.job),
+        _ => None,
+    });
+    jobs.flat_map(|job| {
+        let marked = job.sections.iter().filter(|section| section.format.background == background);
+        marked.map(|section| job.text[section.byte_range.start.0..section.byte_range.end.0].to_owned())
+    })
+    .collect()
+}
+
+#[test]
+fn a_changed_line_marks_the_words_that_changed() {
+    let (_dir, git) = repo();
+    fs::write(git.dir().join("file.txt"), "let total = price * count;\nkeep\nold line\n").unwrap();
+    git.run(&["commit", "-qam", "Total"]).unwrap();
+    fs::write(git.dir().join("file.txt"), "let total = price * amount;\nkeep\nsomething else\n").unwrap();
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    harness.get_by_label("file.txt").click();
+    settle(&mut harness);
+
+    // Only the word that changed stands out; a line rewritten as a whole has nothing to point at.
+    assert_eq!(painted_on(&harness, theme::REMOVED_WORD), ["count"]);
+    assert_eq!(painted_on(&harness, theme::ADDED_WORD), ["amount"]);
 }
 
 #[test]

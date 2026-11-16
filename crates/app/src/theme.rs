@@ -22,6 +22,10 @@ const LANES: [Color32; 10] = [
 pub const ADDED: Color32 = Color32::from_rgb(0x1d, 0x3b, 0x2c);
 /// The background of a removed line.
 pub const REMOVED: Color32 = Color32::from_rgb(0x45, 0x22, 0x27);
+/// The background of the words that changed in an added line.
+pub const ADDED_WORD: Color32 = Color32::from_rgb(0x2c, 0x63, 0x45);
+/// The background of the words that changed in a removed line.
+pub const REMOVED_WORD: Color32 = Color32::from_rgb(0x74, 0x30, 0x39);
 /// The background of a conflict without a pick.
 pub const CONFLICT: Color32 = Color32::from_rgb(0x4a, 0x38, 0x1c);
 /// The background of a line picked for staging.
