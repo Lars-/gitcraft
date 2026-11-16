@@ -1,7 +1,12 @@
-//! The diff of one file, with staging and discarding of hunks and single lines.
+//! The diff of one file, with the words that changed within its lines, and staging and
+//! discarding of hunks and single lines.
 
+use std::ops::Range;
+
+use eframe::egui::cache::{ComputerMut, FrameCache};
+use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{self, Align2, Color32, FontId, Key, Rect, RichText, Sense, Ui, Vec2};
-use gitcraft_core::diff::{LineKind, Source};
+use gitcraft_core::diff::{self, LineKind, Source};
 use gitcraft_core::git::Op;
 
 use crate::app::{Action, Confirm, OpenFile};
@@ -29,6 +34,41 @@ fn act(file: &OpenFile, verb: &'static str, what: &str, selected: &dyn Fn(usize,
         return Action::Confirm(Confirm { question, verb, op: Op::DiscardLines(patch) });
     }
     Action::Run(Op::ApplyToIndex { patch, reverse })
+}
+
+/// Finds the words that changed between a removed and an added line, once while they are on screen.
+#[derive(Debug, Default)]
+struct Words;
+
+impl ComputerMut<[&str; 2], [Vec<Range<usize>>; 2]> for Words {
+    fn compute(&mut self, [old, new]: [&str; 2]) -> [Vec<Range<usize>>; 2] {
+        diff::words(old, new)
+    }
+}
+
+/// A line's text after its `marker`, with its `words` that changed on the `background`.
+fn line_text(
+    marker: &str,
+    text: &str,
+    words: &[Range<usize>],
+    background: Color32,
+    font: &FontId,
+    color: Color32,
+) -> LayoutJob {
+    let mut job = LayoutJob::default();
+    let mut add = |text: &str, background| {
+        job.append(text, 0.0, TextFormat { font_id: font.clone(), color, background, ..TextFormat::default() });
+    };
+    add(marker, Color32::TRANSPARENT);
+    let mut at = 0;
+    // A word can end in the carriage return that is not shown.
+    for word in words.iter().filter(|word| word.start < text.len()) {
+        add(&text[at..word.start], Color32::TRANSPARENT);
+        at = word.end.min(text.len());
+        add(&text[word.start..at], background);
+    }
+    add(&text[at..], Color32::TRANSPARENT);
+    job
 }
 
 /// Shows the open file, with a way to close it when it fills the centre `alone`.
@@ -100,10 +140,10 @@ pub fn show(ui: &mut Ui, file: &OpenFile, alone: bool, actions: &mut Vec<Action>
                 continue;
             };
             let line = &hunk.lines[l];
-            let (background, marker) = match line.kind {
-                LineKind::Added => (theme::ADDED, "+"),
-                LineKind::Removed => (theme::REMOVED, "-"),
-                LineKind::Context | LineKind::NoNewline => (Color32::TRANSPARENT, " "),
+            let (background, word, marker) = match line.kind {
+                LineKind::Added => (theme::ADDED, theme::ADDED_WORD, "+ "),
+                LineKind::Removed => (theme::REMOVED, theme::REMOVED_WORD, "- "),
+                LineKind::Context | LineKind::NoNewline => (Color32::TRANSPARENT, Color32::TRANSPARENT, "  "),
             };
             painter.rect_filled(rect, 0.0, if picked(h, l) { theme::PICKED } else { background });
             let number = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
@@ -116,8 +156,14 @@ pub fn show(ui: &mut Ui, file: &OpenFile, alone: bool, actions: &mut Vec<Action>
                 font.clone(),
                 Color32::DARK_GRAY,
             );
-            let text = format!("{marker} {}", line.text.trim_end_matches('\r'));
-            painter.text(at(2.0 * NUMBER + 6.0), Align2::LEFT_CENTER, text, font.clone(), ui.visuals().text_color());
+            let color = ui.visuals().text_color();
+            let words = hunk.pair(l).map_or_else(Vec::new, |pair| {
+                let side = usize::from(line.kind == LineKind::Added);
+                ui.memory_mut(|m| m.caches.cache::<FrameCache<_, Words>>().get(pair)[side].clone())
+            });
+            let job = line_text(marker, line.text.trim_end_matches('\r'), &words, word, &font, color);
+            let galley = painter.layout_job(job);
+            painter.galley(at(2.0 * NUMBER + 6.0) - Vec2::Y * galley.size().y / 2.0, galley, color);
             let changed = matches!(line.kind, LineKind::Added | LineKind::Removed);
             if !verbs.is_empty() && changed && response.clicked() {
                 actions.push(Action::ToggleLine(h, l));

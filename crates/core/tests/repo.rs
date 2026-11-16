@@ -235,6 +235,35 @@ fn diffs_of_untracked_files_and_commits() {
 }
 
 #[test]
+fn a_changed_line_knows_its_words_that_changed() {
+    let (_dir, git) = repo();
+    commit(&git, "f.rs", "fn total() {\n    price * count\n}\n", "Total");
+    write(&git, "f.rs", "fn total() -> u32 {\n    price * amount\n}\n// done\n");
+
+    let diff = diff::read(&git, &Source::Unstaged("f.rs".into())).unwrap();
+    let hunk = &diff.hunks[0];
+    let words: Vec<_> = (0..hunk.lines.len())
+        .filter(|&l| hunk.lines[l].kind != LineKind::Context)
+        .map(|l| {
+            let line = &hunk.lines[l];
+            let [old, new] = hunk.pair(l).map_or_else(Default::default, |[old, new]| diff::words(old, new));
+            let mine = if line.kind == LineKind::Removed { old } else { new };
+            (line.kind, mine.into_iter().map(|r| &line.text[r]).collect::<Vec<_>>())
+        })
+        .collect();
+    assert_eq!(
+        words,
+        [
+            (LineKind::Removed, vec![]),
+            (LineKind::Removed, vec!["count"]),
+            (LineKind::Added, vec!["-> u32 "]),
+            (LineKind::Added, vec!["amount"]),
+            (LineKind::Added, vec![]),
+        ]
+    );
+}
+
+#[test]
 fn the_diff_of_a_file_a_commit_renamed_shows_only_what_changed() {
     let (_dir, git) = repo();
     commit(&git, "old.txt", "1\n2\n3\n4\n5\n", "Numbers");
