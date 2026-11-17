@@ -52,6 +52,28 @@ impl Hunk {
         let [old, new] = if line.kind == LineKind::Removed { [line, pair] } else { [pair, line] };
         Some([&old.text, &new.text])
     }
+
+    /// The lines side by side, as rows of a line of the old version and one of the new: a line
+    /// that did not change is on both sides, a removed line faces the added line it pairs with,
+    /// and a line that pairs with none has nothing beside it.
+    pub fn side_by_side(&self) -> Vec<[Option<usize>; 2]> {
+        let mut rows = Vec::new();
+        let mut kind = LineKind::Context;
+        for (l, line) in self.lines.iter().enumerate() {
+            // That a line has no newline at its end shows on that line's side.
+            if line.kind != LineKind::NoNewline {
+                kind = line.kind;
+            }
+            match kind {
+                LineKind::Context | LineKind::NoNewline => rows.push([Some(l); 2]),
+                LineKind::Removed => rows.push([Some(l), line.pair]),
+                LineKind::Added if line.pair.is_none() => rows.push([None, Some(l)]),
+                // On the row of the removed line.
+                LineKind::Added => {}
+            }
+        }
+        rows
+    }
 }
 
 /// The diff of one file.
@@ -348,6 +370,10 @@ index 3333333..4444444 100644
 Binary files a/img.png and b/img.png differ
 ";
 
+    /// Blocks with more added lines than removed and the other way around.
+    const MORE: &str =
+        "diff --git a/f b/f\n@@ -1,3 +1,4 @@\n-a\n-b\n+A\n+B\n+C\n x\n-y\n\\ No newline at end of file\n+Y\n";
+
     #[test]
     fn parses_files_hunks_and_line_numbers() {
         let files = FileDiff::parse(DIFF);
@@ -378,9 +404,28 @@ Binary files a/img.png and b/img.png differ
         };
         // "-two" and "+TWO" replace each other, "+extra" and "-four" stand alone.
         assert_eq!(pairs(DIFF), [None, Some(2), Some(1), None, None, None, None]);
-        let more =
-            "diff --git a/f b/f\n@@ -1,3 +1,4 @@\n-a\n-b\n+A\n+B\n+C\n x\n-y\n\\ No newline at end of file\n+Y\n";
-        assert_eq!(pairs(more), [Some(2), Some(3), Some(0), Some(1), None, None, Some(8), None, Some(6)]);
+        assert_eq!(pairs(MORE), [Some(2), Some(3), Some(0), Some(1), None, None, Some(8), None, Some(6)]);
+    }
+
+    #[test]
+    fn side_by_side_a_removed_line_faces_the_added_line_it_pairs_with() {
+        let rows = |diff: &str| FileDiff::parse(diff)[0].hunks[0].side_by_side();
+        // "-four" has no newline at its end, on its own side.
+        assert_eq!(
+            rows(DIFF),
+            [[Some(0); 2], [Some(1), Some(2)], [None, Some(3)], [Some(4); 2], [Some(5), None], [Some(6), None]]
+        );
+        assert_eq!(
+            rows(MORE),
+            [
+                [Some(0), Some(2)],
+                [Some(1), Some(3)],
+                [None, Some(4)],
+                [Some(5); 2],
+                [Some(6), Some(8)],
+                [Some(7), None]
+            ]
+        );
     }
 
     const NONE: [Vec<String>; 2] = [Vec::new(), Vec::new()];

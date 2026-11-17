@@ -52,7 +52,9 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
   type, without the window waiting.
 - **Commits**: message, author, parents and the files they changed, with the diff of each file.
 - **Diffs**: in a line that changed, the words that changed stand out, so a renamed variable or a
-  new argument is easy to spot.
+  new argument is easy to spot. "Side by side" puts the old version on the left and the new one on
+  the right, each changed line facing the line that replaced it; you stage or discard lines from
+  either side the same way, and the choice stays for the next diff and the next run.
 - **File history**: right-click a file, in a commit or in your changes, for every commit that
   changed it, newest first, also from before it was renamed. Pick one to see its diff of the file,
   with the commit beside it. Following a file through a large history happens in the background.

@@ -347,6 +347,76 @@ fn a_changed_line_marks_the_words_that_changed() {
     assert_eq!(painted_on(&harness, theme::ADDED_WORD), ["amount"]);
 }
 
+/// Where the lines on screen that hold `text` are painted, top to bottom.
+fn painted_at(harness: &Harness<'_, App>, text: &str) -> Vec<egui::Pos2> {
+    let shapes = harness.output().shapes.iter();
+    shapes
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(shape) if shape.galley.job.text.contains(text) => Some(shape.pos),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether two coordinates on screen are the same, to the pixel.
+fn same(a: f32, b: f32) -> bool {
+    (a - b).abs() < 1.0
+}
+
+/// Clicks with the mouse at `at`.
+fn click_at(harness: &mut Harness<'_, App>, at: egui::Pos2) {
+    harness.hover_at(at);
+    harness.drag_at(at);
+    harness.drop_at(at);
+    settle(harness);
+}
+
+#[test]
+fn a_diff_side_by_side_puts_old_and_new_next_to_each_other_to_stage_from() {
+    let (_dir, git) = repo();
+    fs::write(git.dir().join("file.txt"), "let total = price * count;\nkeep\n").unwrap();
+    git.run(&["commit", "-qam", "Total"]).unwrap();
+    fs::write(git.dir().join("file.txt"), "let total = price * amount;\nkeep\nnew line\n").unwrap();
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    harness.get_by_label("file.txt").click();
+    settle(&mut harness);
+    let [old] = painted_at(&harness, "- let")[..] else { panic!("no old line") };
+    let [new] = painted_at(&harness, "+ let")[..] else { panic!("no new line") };
+    assert!(same(old.x, new.x) && old.y < new.y, "one under the other at first");
+
+    harness.get_by_label("Side by side").click();
+    settle(&mut harness);
+    let [old] = painted_at(&harness, "- let")[..] else { panic!("no old line") };
+    let [new] = painted_at(&harness, "+ let")[..] else { panic!("no new line") };
+    assert!(same(old.y, new.y) && old.x < new.x, "the old line faces the new one");
+    let [extra] = painted_at(&harness, "+ new line")[..] else { panic!("no added line") };
+    assert!(same(extra.x, new.x) && extra.y > new.y, "a line that pairs with none is on its own side");
+    let [left, right] = painted_at(&harness, "  keep")[..] else { panic!("not on both sides") };
+    assert!(same(left.y, right.y) && same(left.x, old.x) && same(right.x, new.x));
+    assert_eq!(painted_on(&harness, theme::REMOVED_WORD), ["count"]);
+    assert_eq!(painted_on(&harness, theme::ADDED_WORD), ["amount"]);
+
+    // Either side's line can be picked.
+    click_at(&mut harness, old);
+    click_at(&mut harness, new);
+    harness.get_by_label("Stage 2 lines").click();
+    settle(&mut harness);
+    assert_eq!(git.run(&["show", ":file.txt"]).unwrap(), "let total = price * amount;\nkeep\n");
+
+    // The next diff, of what is still unstaged, is side by side too, until it is turned off.
+    harness.get_by_label("Close").click();
+    settle(&mut harness);
+    harness.get_all_by_label("file.txt").next().unwrap().click();
+    settle(&mut harness);
+    let [_, keep] = painted_at(&harness, "  keep")[..] else { panic!("not side by side") };
+    assert!(keep.x > old.x);
+    harness.get_by_label("Side by side").click();
+    settle(&mut harness);
+    assert_eq!(painted_at(&harness, "  keep").len(), 1);
+}
+
 #[test]
 fn discard_single_lines_and_hunks() {
     let (_dir, git) = repo();

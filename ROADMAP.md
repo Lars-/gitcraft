@@ -48,10 +48,11 @@ drive it the way a user does, and keeps every benchmark as fast as before.
 - [x] File history: the commits that changed a file, followed through renames, each with its diff
 - [x] Blame: who last changed each line of a file, and in which commit
 - [x] Better diffs, part 1: the words that changed within a line stand out
+- [x] Better diffs, part 2: the old and the new version side by side
 
 ## Next
 
-1. **Better diffs, part 2**: side by side, syntax colouring, images.
+1. **Better diffs, part 3**: syntax colouring, images.
 2. **Keyboard**: shortcuts for everything, and a command palette.
 3. **Settings**: light and dark theme, font size, date format, default pull mode.
 4. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
