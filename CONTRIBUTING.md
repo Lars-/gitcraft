@@ -60,7 +60,8 @@ There are two crates.
 - `status.rs` and `diff.rs` parse `git status --porcelain=v2`, what commits changed (also to one
   file, through its renames), who last changed each line of a file, and unified diffs, and build
   the patches for staging single lines. `diff.rs` also pairs the lines a change removed and
-  added, and finds the words that changed between them, for the lines on screen.
+  added, to show them side by side, and finds the words that changed between them, for the lines
+  on screen.
 - `conflict.rs` splits a conflicted file at the markers git wrote into it, and puts it back
   together with ours, theirs or both for each conflict.
 - `watch.rs` watches the working tree and the refs, and says when something changed that git
