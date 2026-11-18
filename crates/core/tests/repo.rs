@@ -280,6 +280,38 @@ fn the_diff_of_a_file_a_commit_renamed_shows_only_what_changed() {
 }
 
 #[test]
+fn each_diff_has_the_old_and_the_new_version_of_its_file() {
+    let (_dir, git) = repo();
+    let repo = Repo::open(git.dir()).unwrap();
+    let versions = |source| repo.versions(&source).unwrap().map(|v| v.map(|bytes| String::from_utf8(bytes).unwrap()));
+    write(&git, "a.png", "one");
+    git.apply(&Op::Stage(vec!["a.png".into()])).unwrap();
+    assert_eq!(versions(Source::Staged("a.png".into())), [None, Some("one".into())]);
+    let first = commit(&git, "a.png", "one", "One");
+    git.run(&["mv", "a.png", "b.png"]).unwrap();
+    let renamed = commit(&git, "b.png", "two", "Two");
+    commit(&git, "c.png", "c", "Another");
+    write(&git, "b.png", "three");
+    git.apply(&Op::Stage(vec!["b.png".into()])).unwrap();
+    write(&git, "b.png", "four");
+    write(&git, "new.png", "new");
+    fs::remove_file(git.dir().join("c.png")).unwrap();
+
+    let at = |commit: &str, path: &str, from: Option<&str>| Source::Commit {
+        commit: commit.into(),
+        path: path.into(),
+        from: from.map(Into::into),
+    };
+    assert_eq!(versions(at(&first, "a.png", None)), [None, Some("one".into())]);
+    assert_eq!(versions(at(&renamed, "b.png", Some("a.png"))), [Some("one".into()), Some("two".into())]);
+    assert_eq!(versions(at(&renamed, "a.png", None)), [Some("one".into()), None]);
+    assert_eq!(versions(Source::Staged("b.png".into())), [Some("two".into()), Some("three".into())]);
+    assert_eq!(versions(Source::Unstaged("b.png".into())), [Some("three".into()), Some("four".into())]);
+    assert_eq!(versions(Source::Unstaged("c.png".into())), [Some("c".into()), None]);
+    assert_eq!(versions(Source::Untracked("new.png".into())), [None, Some("new".into())]);
+}
+
+#[test]
 fn the_history_of_a_file_follows_it_through_renames() {
     let (_dir, git) = repo();
     let first = commit(&git, "old.txt", "1\n2\n3\n4\n5\n", "Numbers");

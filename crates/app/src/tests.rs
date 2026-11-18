@@ -417,6 +417,78 @@ fn a_diff_side_by_side_puts_old_and_new_next_to_each_other_to_stage_from() {
     assert_eq!(painted_at(&harness, "  keep").len(), 1);
 }
 
+/// A PNG of `width` by `height` pixels.
+fn png(width: u32, height: u32) -> Vec<u8> {
+    let mut png = std::io::Cursor::new(Vec::new());
+    let image = image::RgbaImage::from_pixel(width, height, image::Rgba([200, 40, 40, 255]));
+    image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    png.into_inner()
+}
+
+/// The sizes of the pictures on screen, left to right.
+fn pictures_painted(harness: &Harness<'_, App>) -> Vec<egui::Vec2> {
+    let shapes = harness.output().shapes.iter().map(|clipped| &clipped.shape);
+    let pictures = shapes.filter(|shape| shape.texture_id() != egui::TextureId::default());
+    pictures.map(|shape| shape.visual_bounding_rect().size()).collect()
+}
+
+/// Opens the diff of `path` in the details and waits for its pictures.
+fn open_pictures(harness: &mut Harness<'_, App>, path: &str) {
+    harness.get_by_label(path).click();
+    let read = |h: &Harness<'_, App>| {
+        let file = h.state().workspace().unwrap().open_file.as_ref();
+        file.is_some_and(|file| file.source.path() == path && file.reading.is_none())
+    };
+    wait_until(harness, "the pictures", read);
+    settle(harness);
+}
+
+#[test]
+fn a_picture_shows_its_old_and_its_new_version_side_by_side() {
+    let (_dir, git) = repo();
+    let (old, new) = (png(3, 2), png(40, 30));
+    fs::write(git.dir().join("logo.png"), &old).unwrap();
+    git.apply(&Op::Stage(vec!["logo.png".into()])).unwrap();
+    git.apply(&Op::Commit { message: "Logo".into(), amend: false }).unwrap();
+    fs::write(git.dir().join("logo.png"), &new).unwrap();
+    fs::write(git.dir().join("broken.png"), [0, 1, 2]).unwrap();
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+
+    open_pictures(&mut harness, "logo.png");
+    harness.get_by_label(&format!("Old · 3 × 2 · {} bytes", old.len()));
+    harness.get_by_label(&format!("New · 40 × 30 · {} bytes", new.len()));
+    let sizes = pictures_painted(&harness);
+    assert_eq!(sizes.len(), 2, "{sizes:?}");
+    assert!(same(sizes[0].x, 3.0) && same(sizes[0].y, 2.0) && same(sizes[1].x, 40.0) && same(sizes[1].y, 30.0));
+
+    // A change outside shows at once.
+    fs::write(git.dir().join("logo.png"), png(5, 5)).unwrap();
+    wait_until(&mut harness, "the new picture", |h| h.query_by_label_contains("New · 5 × 5").is_some());
+
+    open_pictures(&mut harness, "broken.png");
+    harness.get_by_label("Old · none");
+    harness.get_by_label_contains("New · cannot be shown: ");
+
+    // A commit that added it has nothing before.
+    harness.get_by_label("Close").click();
+    settle(&mut harness);
+    harness.get_by_role_and_label(Role::Button, "Logo").click();
+    settle(&mut harness);
+    open_pictures(&mut harness, "logo.png");
+    harness.get_by_label("Old · none");
+    harness.get_by_label(&format!("New · 3 × 2 · {} bytes", old.len()));
+    assert_eq!(pictures_painted(&harness).len(), 1);
+}
+
+#[test]
+fn sizes_read_the_way_people_say_them() {
+    assert_eq!(crate::diff::bytes(1023), "1023 bytes");
+    assert_eq!(crate::diff::bytes(1536), "1.5 KB");
+    assert_eq!(crate::diff::bytes(3 << 20), "3.0 MB");
+}
+
 #[test]
 fn discard_single_lines_and_hunks() {
     let (_dir, git) = repo();

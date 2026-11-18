@@ -1,5 +1,5 @@
 //! The diff of one file, with the words that changed within its lines, and staging and
-//! discarding of hunks and single lines.
+//! discarding of hunks and single lines; or a picture's old and new version.
 
 use std::ops::Range;
 
@@ -9,7 +9,7 @@ use eframe::egui::{self, Align2, Color32, FontId, Key, Rect, RichText, Sense, Ui
 use gitcraft_core::diff::{self, LineKind, Source};
 use gitcraft_core::git::Op;
 
-use crate::app::{Action, Confirm, OpenFile};
+use crate::app::{Action, Confirm, OpenFile, Picture};
 use crate::theme;
 
 const LINE: f32 = 18.0;
@@ -108,7 +108,7 @@ pub fn show(ui: &mut Ui, file: &OpenFile, alone: bool, actions: &mut Vec<Action>
     });
     ui.separator();
     if file.diff.binary {
-        ui.weak("Binary file");
+        pictures(ui, file);
         return;
     }
     if file.diff.hunks.is_empty() {
@@ -174,6 +174,43 @@ pub fn show(ui: &mut Ui, file: &OpenFile, alone: bool, actions: &mut Vec<Action>
             painter.vline(rect.center().x, rect.y_range(), ui.visuals().widgets.noninteractive.bg_stroke);
         }
     });
+}
+
+/// The old and the new version of a picture side by side, each as large as it is or as fits.
+fn pictures(ui: &mut Ui, file: &OpenFile) {
+    if file.pictures.iter().all(Option::is_none) {
+        if file.reading.is_some() {
+            ui.spinner();
+        } else {
+            ui.weak("Binary file");
+        }
+        return;
+    }
+    ui.columns(2, |columns| {
+        for ((ui, version), name) in columns.iter_mut().zip(&file.pictures).zip(["Old", "New"]) {
+            ui.weak(match version {
+                None => format!("{name} · none"),
+                Some(Err(error)) => format!("{name} · cannot be shown: {error}"),
+                Some(Ok(Picture { size: [width, height], bytes: n, .. })) => {
+                    format!("{name} · {width} × {height} · {}", bytes(*n))
+                }
+            });
+            if let Some(Ok(picture)) = version {
+                let image = egui::Image::new(&picture.texture).fit_to_original_size(1.0);
+                egui::Frame::canvas(ui.style()).show(ui, |ui| ui.add(image.max_size(ui.available_size())));
+            }
+        }
+    });
+}
+
+/// A number of bytes, as people read it.
+pub fn bytes(n: usize) -> String {
+    let tenths = |unit: usize| format!("{}.{}", n / unit, n % unit * 10 / unit);
+    match n {
+        ..1024 => format!("{n} bytes"),
+        1024..1_048_576 => format!("{} KB", tenths(1024)),
+        _ => format!("{} MB", tenths(1_048_576)),
+    }
 }
 
 /// Draws line `l` of hunk `h` in `rect`, after its numbers in the old and the new version, or
