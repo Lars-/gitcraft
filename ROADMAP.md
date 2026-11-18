@@ -49,10 +49,11 @@ drive it the way a user does, and keeps every benchmark as fast as before.
 - [x] Blame: who last changed each line of a file, and in which commit
 - [x] Better diffs, part 1: the words that changed within a line stand out
 - [x] Better diffs, part 2: the old and the new version side by side
+- [x] Better diffs, part 3: a picture's old and new version next to each other
 
 ## Next
 
-1. **Better diffs, part 3**: syntax colouring, images.
+1. **Better diffs, part 4**: syntax colouring.
 2. **Keyboard**: shortcuts for everything, and a command palette.
 3. **Settings**: light and dark theme, font size, date format, default pull mode.
 4. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default

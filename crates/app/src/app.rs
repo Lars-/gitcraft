@@ -190,6 +190,63 @@ pub struct OpenFile {
     pub diff: FileDiff,
     /// The picked lines, as hunk and line index.
     pub lines: BTreeSet<(usize, usize)>,
+    /// The old and the new version, when the file is a picture.
+    pub pictures: [Version; 2],
+    /// The pictures being read, if they are.
+    pub reading: Reading<[Version; 2]>,
+}
+
+/// A version of a picture, or why it does not show; `None` when the version does not have the file.
+pub type Version = Option<Result<Picture, String>>;
+
+/// A version of a picture, ready to show.
+pub struct Picture {
+    /// What it shows, made smaller when it is too large for one texture.
+    pub texture: egui::TextureHandle,
+    /// Its width and height in pixels.
+    pub size: [u32; 2],
+    /// How many bytes it takes.
+    pub bytes: usize,
+}
+
+impl std::fmt::Debug for Picture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self { texture, size, bytes } = self;
+        f.debug_struct("Picture").field("texture", &texture.id()).field("size", size).field("bytes", bytes).finish()
+    }
+}
+
+impl OpenFile {
+    fn new(ctx: &egui::Context, repo: &Repo, source: Source, diff: FileDiff) -> Self {
+        let mut file = Self { source, diff, lines: BTreeSet::new(), pictures: [None, None], reading: None };
+        file.read_pictures(ctx, repo);
+        file
+    }
+
+    /// Reads the old and the new version in the background, when git sees the file as binary
+    /// and its name says it is a picture.
+    fn read_pictures(&mut self, ctx: &egui::Context, repo: &Repo) {
+        let format = image::ImageFormat::from_path(self.source.path());
+        if !self.diff.binary || !format.is_ok_and(|format| format.reading_enabled()) {
+            return;
+        }
+        let (repo, source, context) = (repo.clone(), self.source.clone(), ctx.clone());
+        self.reading = Some(read_in_background(ctx, move || {
+            let versions = repo.versions(&source)?;
+            Ok(versions.map(|version| version.map(|bytes| picture(&context, source.path(), &bytes))))
+        }));
+    }
+}
+
+/// Decodes a version of a picture into a texture.
+fn picture(ctx: &egui::Context, name: &str, bytes: &[u8]) -> Result<Picture, String> {
+    let image = image::load_from_memory(bytes).map_err(|error| error.to_string())?;
+    let size = [image.width(), image.height()];
+    let largest = u32::try_from(ctx.input(|i| i.max_texture_side)).unwrap_or(u32::MAX);
+    let image = if size[0].max(size[1]) > largest { image.thumbnail(largest, largest) } else { image };
+    let pixels = image.into_rgba8();
+    let image = egui::ColorImage::from_rgba_unmultiplied([pixels.width() as usize, pixels.height() as usize], &pixels);
+    Ok(Picture { texture: ctx.load_texture(name, image, egui::TextureOptions::LINEAR), size, bytes: bytes.len() })
 }
 
 /// A conflicted file being resolved in the centre, conflict by conflict.
@@ -570,7 +627,7 @@ impl Workspace {
             Action::Next(down) => self.reveal_row(ctx, self.search.next(self.selected_commit(), down)),
             Action::Open(source) => {
                 (self.history, self.blame) = (None, None);
-                self.open(source);
+                self.open(ctx, source);
             }
             Action::History { at, path } => {
                 self.close_centre();
@@ -663,11 +720,11 @@ impl Workspace {
     }
 
     /// Shows the diff of a file in the centre.
-    fn open(&mut self, source: Source) {
+    fn open(&mut self, ctx: &egui::Context, source: Source) {
         match diff::read(&self.repo.git, &source) {
             Ok(diff) => {
                 (self.merge, self.plan) = (None, None);
-                self.open_file = Some(OpenFile { source, diff, lines: BTreeSet::new() });
+                self.open_file = Some(OpenFile::new(ctx, &self.repo, source, diff));
             }
             Err(error) => self.error = Some(error.to_string()),
         }
@@ -679,12 +736,12 @@ impl Workspace {
         let Some(history) = &self.history else { return };
         let (id, source) = (history.commits[row].0, history.source(row));
         self.apply(ctx, Action::Reveal(Selection::Commit(id)));
-        self.open(source);
+        self.open(ctx, source);
     }
 
-    /// Takes in the history or the blame of the file in the centre once it is read. A history
-    /// shows the diff of its newest commit when none is open; a blame that failed, as when the
-    /// file is gone, closes.
+    /// Takes in the history, the blame or the pictures of the file in the centre once they are
+    /// read. A history shows the diff of its newest commit when none is open; a blame that
+    /// failed, as when the file is gone, closes.
     fn take_reading(&mut self, ctx: &egui::Context) {
         if let Some(history) = &mut self.history
             && let Some(read) = take(&mut history.reading)
@@ -703,6 +760,14 @@ impl Workspace {
             match read {
                 Ok(lines) => blame.lines = lines,
                 Err(error) => (self.blame, self.error) = (None, Some(error)),
+            }
+        }
+        if let Some(file) = &mut self.open_file
+            && let Some(read) = take(&mut file.reading)
+        {
+            match read {
+                Ok(pictures) => file.pictures = pictures,
+                Err(error) => self.error = Some(error),
             }
         }
     }
@@ -919,7 +984,10 @@ impl Workspace {
             // The picked lines stay picked as long as the diff stays the same.
             match diff::read(&self.repo.git, &file.source) {
                 Ok(diff) if diff == file.diff => {}
-                Ok(diff) => (file.diff, file.lines) = (diff, BTreeSet::new()),
+                Ok(diff) => {
+                    (file.diff, file.lines) = (diff, BTreeSet::new());
+                    file.read_pictures(ctx, &self.repo);
+                }
                 Err(error) => self.error = Some(error.to_string()),
             }
         }

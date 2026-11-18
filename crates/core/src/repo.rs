@@ -9,6 +9,7 @@ use gix::refs::Category;
 use gix::revision::walk::Sorting;
 use gix::traverse::commit::simple::CommitTimeOrder;
 
+use crate::diff::Source;
 use crate::git::Git;
 use crate::graph::{Graph, Parents, date_order};
 use crate::{Error, Result};
@@ -215,6 +216,48 @@ impl Repo {
             }
         }
         Ok(found)
+    }
+
+    /// The old and the new version of the file a diff is about, as stored, or `None` for a version
+    /// without it. The old version of a commit's file is the one in its first parent.
+    pub fn versions(&self, source: &Source) -> Result<[Option<Vec<u8>>; 2]> {
+        let worktree = |path: &str| match std::fs::read(self.git.dir().join(path)) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            read => read.map(Some).map_err(|source| Error::File { path: path.to_owned(), source }),
+        };
+        Ok(match source {
+            Source::Unstaged(path) => [self.indexed(path)?, worktree(path)?],
+            Source::Staged(path) => {
+                let head = self.gix.head().map_err(Error::repository)?.try_peel_to_id().map_err(Error::repository)?;
+                [self.stored(head.map(gix::Id::detach), path)?, self.indexed(path)?]
+            }
+            Source::Untracked(path) => [None, worktree(path)?],
+            Source::Commit { commit, path, from } => {
+                let commit = ObjectId::from_hex(commit.as_bytes()).map_err(Error::repository)?;
+                let parent = self.gix.find_commit(commit).map_err(Error::repository)?.parent_ids().next();
+                [
+                    self.stored(parent.map(gix::Id::detach), from.as_deref().unwrap_or(path))?,
+                    self.stored(Some(commit), path)?,
+                ]
+            }
+        })
+    }
+
+    /// The file at `path` in `commit`, if there is a commit and it has the file.
+    fn stored(&self, commit: Option<ObjectId>, path: &str) -> Result<Option<Vec<u8>>> {
+        let Some(commit) = commit else { return Ok(None) };
+        let tree = self.gix.find_commit(commit).map_err(Error::repository)?.tree().map_err(Error::repository)?;
+        self.blob(tree.lookup_entry_by_path(path).map_err(Error::repository)?.map(|entry| entry.object_id()))
+    }
+
+    /// The file at `path` in the index, if it has it.
+    fn indexed(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        let index = self.gix.index_or_empty().map_err(Error::repository)?;
+        self.blob(index.entry_by_path(path.into()).map(|entry| entry.id))
+    }
+
+    fn blob(&self, id: Option<ObjectId>) -> Result<Option<Vec<u8>>> {
+        id.map(|id| self.gix.find_blob(id).map(|mut blob| blob.take_data()).map_err(Error::repository)).transpose()
     }
 
     /// Reads one commit.
