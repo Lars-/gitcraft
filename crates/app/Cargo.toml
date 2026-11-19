@@ -12,6 +12,7 @@ gitcraft-core.workspace = true
 eframe.workspace = true
 rfd.workspace = true
 image.workspace = true
+syntect.workspace = true
 
 [dev-dependencies]
 egui_kittest.workspace = true

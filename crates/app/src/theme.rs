@@ -30,6 +30,8 @@ pub const REMOVED_WORD: Color32 = Color32::from_rgb(0x74, 0x30, 0x39);
 pub const CONFLICT: Color32 = Color32::from_rgb(0x4a, 0x38, 0x1c);
 /// The background of a line picked for staging.
 pub const PICKED: Color32 = Color32::from_rgb(0x2b, 0x4a, 0x7a);
+/// The colours of code: one of syntect's own themes, made for a dark background.
+pub const CODE: &str = "base16-ocean.dark";
 /// Text for errors.
 pub const ERROR: Color32 = Color32::from_rgb(0xf8, 0x71, 0x71);
 
