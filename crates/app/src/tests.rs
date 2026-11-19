@@ -432,14 +432,14 @@ fn pictures_painted(harness: &Harness<'_, App>) -> Vec<egui::Vec2> {
     pictures.map(|shape| shape.visual_bounding_rect().size()).collect()
 }
 
-/// Opens the diff of `path` in the details and waits for its pictures.
-fn open_pictures(harness: &mut Harness<'_, App>, path: &str) {
+/// Opens the diff of `path` in the details and waits for its old and new version.
+fn open_versions(harness: &mut Harness<'_, App>, path: &str) {
     harness.get_by_label(path).click();
     let read = |h: &Harness<'_, App>| {
         let file = h.state().workspace().unwrap().open_file.as_ref();
         file.is_some_and(|file| file.source.path() == path && file.reading.is_none())
     };
-    wait_until(harness, "the pictures", read);
+    wait_until(harness, "the versions", read);
     settle(harness);
 }
 
@@ -456,7 +456,7 @@ fn a_picture_shows_its_old_and_its_new_version_side_by_side() {
     harness.get_by_label("Uncommitted changes").click();
     settle(&mut harness);
 
-    open_pictures(&mut harness, "logo.png");
+    open_versions(&mut harness, "logo.png");
     harness.get_by_label(&format!("Old · 3 × 2 · {} bytes", old.len()));
     harness.get_by_label(&format!("New · 40 × 30 · {} bytes", new.len()));
     let sizes = pictures_painted(&harness);
@@ -467,7 +467,7 @@ fn a_picture_shows_its_old_and_its_new_version_side_by_side() {
     fs::write(git.dir().join("logo.png"), png(5, 5)).unwrap();
     wait_until(&mut harness, "the new picture", |h| h.query_by_label_contains("New · 5 × 5").is_some());
 
-    open_pictures(&mut harness, "broken.png");
+    open_versions(&mut harness, "broken.png");
     harness.get_by_label("Old · none");
     harness.get_by_label_contains("New · cannot be shown: ");
 
@@ -476,10 +476,54 @@ fn a_picture_shows_its_old_and_its_new_version_side_by_side() {
     settle(&mut harness);
     harness.get_by_role_and_label(Role::Button, "Logo").click();
     settle(&mut harness);
-    open_pictures(&mut harness, "logo.png");
+    open_versions(&mut harness, "logo.png");
     harness.get_by_label("Old · none");
     harness.get_by_label(&format!("New · 3 × 2 · {} bytes", old.len()));
     assert_eq!(pictures_painted(&harness).len(), 1);
+}
+
+/// The colours of the text on screen that reads `text`.
+fn coloured(harness: &Harness<'_, App>, text: &str) -> Vec<egui::Color32> {
+    let jobs = harness.output().shapes.iter().filter_map(|clipped| match &clipped.shape {
+        egui::Shape::Text(text) => Some(&text.galley.job),
+        _ => None,
+    });
+    jobs.flat_map(|job| {
+        let pieces = job.sections.iter().filter(|s| job.text[s.byte_range.start.0..s.byte_range.end.0] == *text);
+        pieces.map(|section| section.format.color)
+    })
+    .collect()
+}
+
+#[test]
+fn code_in_a_diff_has_the_colours_of_its_language() {
+    let (_dir, git) = repo();
+    let code = "/*\n * one\n * two\n * three\n * four\n */\nfn main() {}\n";
+    fs::write(git.dir().join("main.rs"), code).unwrap();
+    git.apply(&Op::Stage(vec!["main.rs".into()])).unwrap();
+    git.apply(&Op::Commit { message: "Main".into(), amend: false }).unwrap();
+    fs::write(git.dir().join("main.rs"), code.replace("{}", "{ greet(); }")).unwrap();
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    open_versions(&mut harness, "main.rs");
+
+    // The hunk starts in a comment that starts before it, and it still reads as one.
+    let plain = harness.ctx.style_of(egui::Theme::Dark).visuals.text_color();
+    let [comment] = coloured(&harness, " * three")[..] else { panic!("no line of the comment") };
+    let [keyword, again] = coloured(&harness, "fn")[..] else { panic!("no old and new line") };
+    assert!(comment != plain && keyword != plain && keyword != comment && again == keyword);
+    assert!(painted_on(&harness, theme::ADDED_WORD).concat().contains("greet"), "the words still stand out");
+
+    // A submodule is no code, and its diff shows where it points.
+    let head = git.run(&["rev-parse", "HEAD"]).unwrap();
+    fs::create_dir(git.dir().join("sub")).unwrap();
+    git.run(&["update-index", "--add", "--cacheinfo", &format!("160000,{},sub", head.trim())]).unwrap();
+    harness.get_by_label("Refresh").click();
+    settle(&mut harness);
+    open_versions(&mut harness, "sub");
+    assert_eq!(painted_at(&harness, "Subproject commit").len(), 1);
+    assert_eq!(harness.state().workspace().unwrap().error, None);
 }
 
 #[test]

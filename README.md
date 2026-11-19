@@ -51,8 +51,10 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
   that name comes first, so typing its name takes you there. Large histories are searched as you
   type, without the window waiting.
 - **Commits**: message, author, parents and the files they changed, with the diff of each file.
-- **Diffs**: in a line that changed, the words that changed stand out, so a renamed variable or a
-  new argument is easy to spot. "Side by side" puts the old version on the left and the new one on
+- **Diffs**: code has the colours of its language, some fifty of them from Rust and C to Python,
+  JavaScript, PHP and Go, and a line in a comment or string that started above the change is
+  coloured as one. In a line that changed, the words that changed stand out, so a renamed
+  variable or a new argument is easy to spot. "Side by side" puts the old version on the left and the new one on
   the right, each changed line facing the line that replaced it; you stage or discard lines from
   either side the same way, and the choice stays for the next diff and the next run. A picture
   (PNG, JPEG, GIF, WebP, BMP or ICO) shows its old and its new version next to each other, with

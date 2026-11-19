@@ -11,6 +11,7 @@ mod merge;
 mod rebase;
 mod sidebar;
 mod start;
+mod syntax;
 #[cfg(test)]
 mod tests;
 mod theme;

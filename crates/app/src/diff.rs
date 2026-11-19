@@ -1,5 +1,5 @@
-//! The diff of one file, with the words that changed within its lines, and staging and
-//! discarding of hunks and single lines; or a picture's old and new version.
+//! The diff of one file, with the colours of its code and the words that changed within its
+//! lines, and staging and discarding of hunks and single lines; or a picture's old and new version.
 
 use std::ops::Range;
 
@@ -9,7 +9,7 @@ use eframe::egui::{self, Align2, Color32, FontId, Key, Rect, RichText, Sense, Ui
 use gitcraft_core::diff::{self, LineKind, Source};
 use gitcraft_core::git::Op;
 
-use crate::app::{Action, Confirm, OpenFile, Picture};
+use crate::app::{Action, Confirm, OpenFile, Picture, Versions};
 use crate::theme;
 
 const LINE: f32 = 18.0;
@@ -47,28 +47,35 @@ impl ComputerMut<[&str; 2], [Vec<Range<usize>>; 2]> for Words {
     }
 }
 
-/// A line's text after its `marker`, with its `words` that changed on the `background`.
+/// A line's text after its `marker`, in its `colours` (where each starts, `None` for `plain`), and
+/// with its `words` that changed on the `background`.
 fn line_text(
     marker: &str,
     text: &str,
-    words: &[Range<usize>],
-    background: Color32,
+    colours: &[(usize, Option<Color32>)],
+    (words, background): (&[Range<usize>], Color32),
     font: &FontId,
-    color: Color32,
+    plain: Color32,
 ) -> LayoutJob {
     let mut job = LayoutJob::default();
-    let mut add = |text: &str, background| {
+    let mut add = |text: &str, color, background| {
         job.append(text, 0.0, TextFormat { font_id: font.clone(), color, background, ..TextFormat::default() });
     };
-    add(marker, Color32::TRANSPARENT);
-    let mut at = 0;
-    // A word can end in the carriage return that is not shown.
-    for word in words.iter().filter(|word| word.start < text.len()) {
-        add(&text[at..word.start], Color32::TRANSPARENT);
-        at = word.end.min(text.len());
-        add(&text[word.start..at], background);
+    add(marker, plain, Color32::TRANSPARENT);
+    // A piece goes up to where the next colour or word starts or a word ends; a word can end in
+    // the carriage return that is not shown.
+    let starts = words.iter().flat_map(|word| [word.start, word.end]).chain(colours.iter().map(|&(at, _)| at));
+    let mut cuts: Vec<usize> = starts.filter(|&at| at < text.len()).chain([0, text.len()]).collect();
+    cuts.sort_unstable();
+    cuts.dedup();
+    let (mut colour, mut next) = (plain, colours.iter().peekable());
+    for piece in cuts.windows(2) {
+        while let Some(&(_, start)) = next.next_if(|&&(at, _)| at <= piece[0]) {
+            colour = start.unwrap_or(plain);
+        }
+        let changed = words.iter().any(|word| word.contains(&piece[0]));
+        add(&text[piece[0]..piece[1]], colour, if changed { background } else { Color32::TRANSPARENT });
     }
-    add(&text[at..], Color32::TRANSPARENT);
     job
 }
 
@@ -178,16 +185,19 @@ pub fn show(ui: &mut Ui, file: &OpenFile, alone: bool, actions: &mut Vec<Action>
 
 /// The old and the new version of a picture side by side, each as large as it is or as fits.
 fn pictures(ui: &mut Ui, file: &OpenFile) {
-    if file.pictures.iter().all(Option::is_none) {
-        if file.reading.is_some() {
-            ui.spinner();
-        } else {
-            ui.weak("Binary file");
+    let pictures = match &file.versions {
+        Versions::Pictures(pictures) if pictures.iter().any(Option::is_some) => pictures,
+        _ => {
+            if file.reading.is_some() {
+                ui.spinner();
+            } else {
+                ui.weak("Binary file");
+            }
+            return;
         }
-        return;
-    }
+    };
     ui.columns(2, |columns| {
-        for ((ui, version), name) in columns.iter_mut().zip(&file.pictures).zip(["Old", "New"]) {
+        for ((ui, version), name) in columns.iter_mut().zip(pictures).zip(["Old", "New"]) {
             ui.weak(match version {
                 None => format!("{name} · none"),
                 Some(Err(error)) => format!("{name} · cannot be shown: {error}"),
@@ -243,11 +253,21 @@ fn line(
         painter.text(at(x - 6.0), Align2::RIGHT_CENTER, n, FONT, Color32::DARK_GRAY);
     }
     let color = ui.visuals().text_color();
+    // The version the line is in, the old one for a line in both.
+    let version = usize::from(line.kind == LineKind::Added);
     let words = hunk.pair(l).map_or_else(Vec::new, |pair| {
-        let side = usize::from(line.kind == LineKind::Added);
-        ui.memory_mut(|m| m.caches.cache::<FrameCache<_, Words>>().get(pair)[side].clone())
+        ui.memory_mut(|m| m.caches.cache::<FrameCache<_, Words>>().get(pair)[version].clone())
     });
-    let job = line_text(marker, line.text.trim_end_matches('\r'), &words, word, &FONT, color);
+    let text = line.text.trim_end_matches('\r');
+    // The line's colours, as long as the version read has the same line there.
+    let colours = match &file.versions {
+        Versions::Code(code) => [line.old, line.new][version]
+            .and_then(|n| code[version].get((n as usize).checked_sub(1)?))
+            .filter(|coloured| coloured.text == text)
+            .map(|coloured| &coloured.colours[..]),
+        _ => None,
+    };
+    let job = line_text(marker, text, colours.unwrap_or_default(), (&words, word), &FONT, color);
     let galley = painter.layout_job(job);
     painter.galley(at(x + 6.0) - Vec2::Y * galley.size().y / 2.0, galley, color);
     let changed = matches!(line.kind, LineKind::Added | LineKind::Removed);

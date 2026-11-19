@@ -21,6 +21,8 @@ use gitcraft_core::undo::{self, Undo};
 use gitcraft_core::watch::Watch;
 use gitcraft_core::{ObjectId, Result};
 
+use crate::syntax;
+
 /// What the user asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -190,10 +192,22 @@ pub struct OpenFile {
     pub diff: FileDiff,
     /// The picked lines, as hunk and line index.
     pub lines: BTreeSet<(usize, usize)>,
-    /// The old and the new version, when the file is a picture.
-    pub pictures: [Version; 2],
-    /// The pictures being read, if they are.
-    pub reading: Reading<[Version; 2]>,
+    /// The old and the new version, once they are read.
+    pub versions: Versions,
+    /// The versions being read, if they are.
+    pub reading: Reading<Versions>,
+}
+
+/// The old and the new version of a file, to show more of them than the diff does.
+#[derive(Debug, Default)]
+pub enum Versions {
+    /// Not read.
+    #[default]
+    None,
+    /// A picture's.
+    Pictures([Version; 2]),
+    /// The lines of code, with their colours; none in a language without colours.
+    Code([Vec<syntax::Line>; 2]),
 }
 
 /// A version of a picture, or why it does not show; `None` when the version does not have the file.
@@ -218,22 +232,31 @@ impl std::fmt::Debug for Picture {
 
 impl OpenFile {
     fn new(ctx: &egui::Context, repo: &Repo, source: Source, diff: FileDiff) -> Self {
-        let mut file = Self { source, diff, lines: BTreeSet::new(), pictures: [None, None], reading: None };
-        file.read_pictures(ctx, repo);
+        let mut file = Self { source, diff, lines: BTreeSet::new(), versions: Versions::None, reading: None };
+        file.read_versions(ctx, repo);
         file
     }
 
-    /// Reads the old and the new version in the background, when git sees the file as binary
-    /// and its name says it is a picture.
-    fn read_pictures(&mut self, ctx: &egui::Context, repo: &Repo) {
+    /// Reads the old and the new version in the background: of a picture, when git sees the file
+    /// as binary and its name says it is one, and else of the code, to colour it.
+    fn read_versions(&mut self, ctx: &egui::Context, repo: &Repo) {
         let format = image::ImageFormat::from_path(self.source.path());
-        if !self.diff.binary || !format.is_ok_and(|format| format.reading_enabled()) {
+        let binary = self.diff.binary;
+        // A link or a submodule has no code: its diff is where it points.
+        let link = self.diff.header.iter().any(|line| line.ends_with(" 120000") || line.ends_with(" 160000"));
+        if binary && !format.is_ok_and(|format| format.reading_enabled()) || !binary && link {
             return;
         }
         let (repo, source, context) = (repo.clone(), self.source.clone(), ctx.clone());
         self.reading = Some(read_in_background(ctx, move || {
-            let versions = repo.versions(&source)?;
-            Ok(versions.map(|version| version.map(|bytes| picture(&context, source.path(), &bytes))))
+            let (versions, path) = (repo.versions(&source)?, source.path());
+            Ok(if binary {
+                Versions::Pictures(versions.map(|version| version.map(|bytes| picture(&context, path, &bytes))))
+            } else {
+                Versions::Code(
+                    versions.map(|version| version.map_or_else(Vec::new, |code| syntax::colour(path, &code))),
+                )
+            })
         }));
     }
 }
@@ -739,7 +762,7 @@ impl Workspace {
         self.open(ctx, source);
     }
 
-    /// Takes in the history, the blame or the pictures of the file in the centre once they are
+    /// Takes in the history, the blame or the versions of the file in the centre once they are
     /// read. A history shows the diff of its newest commit when none is open; a blame that
     /// failed, as when the file is gone, closes.
     fn take_reading(&mut self, ctx: &egui::Context) {
@@ -766,7 +789,7 @@ impl Workspace {
             && let Some(read) = take(&mut file.reading)
         {
             match read {
-                Ok(pictures) => file.pictures = pictures,
+                Ok(versions) => file.versions = versions,
                 Err(error) => self.error = Some(error),
             }
         }
@@ -986,7 +1009,7 @@ impl Workspace {
                 Ok(diff) if diff == file.diff => {}
                 Ok(diff) => {
                     (file.diff, file.lines) = (diff, BTreeSet::new());
-                    file.read_pictures(ctx, &self.repo);
+                    file.read_versions(ctx, &self.repo);
                 }
                 Err(error) => self.error = Some(error.to_string()),
             }

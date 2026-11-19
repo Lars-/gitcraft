@@ -87,7 +87,8 @@ Its tests run against real repositories made with `git` in a temporary folder
 - `start.rs` (open, clone and create), `ui.rs` (tabs and toolbar), `graph.rs`, `sidebar.rs`, `details.rs`,
   `diff.rs`, `history.rs` (a file's history), `blame.rs` (who last changed each line),
   `merge.rs` (a conflicted file) and `rebase.rs` (an interactive rebase) draw the views, and
-  `theme.rs` has the colours.
+  `theme.rs` has the colours. `syntax.rs` colours code with the grammar of its language, from
+  the top of the file, so a diff reads both versions of the file in the background to colour it.
 
 The app's tests (`crates/app/src/tests.rs`) drive the whole window the way a user does, through
 the accessibility tree with [egui_kittest](https://crates.io/crates/egui_kittest). That also keeps

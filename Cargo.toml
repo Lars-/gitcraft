@@ -18,6 +18,7 @@ eframe = { version = "0.37", default-features = false, features = ["default_font
 egui_kittest = "0.37"
 rfd = "0.18"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
+syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
 tempfile = "3"
 proptest = "1"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
