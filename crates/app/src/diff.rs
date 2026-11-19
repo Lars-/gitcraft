@@ -70,10 +70,8 @@ fn line_text(
     cuts.dedup();
     let (mut colour, mut next) = (plain, colours.iter().peekable());
     for piece in cuts.windows(2) {
-        while let Some(&&(at, start)) = next.peek()
-            && at <= piece[0]
-        {
-            (colour, _) = (start.unwrap_or(plain), next.next());
+        while let Some(&(_, start)) = next.next_if(|&&(at, _)| at <= piece[0]) {
+            colour = start.unwrap_or(plain);
         }
         let changed = words.iter().any(|word| word.contains(&piece[0]));
         add(&text[piece[0]..piece[1]], colour, if changed { background } else { Color32::TRANSPARENT });
@@ -189,8 +187,14 @@ pub fn show(ui: &mut Ui, file: &OpenFile, alone: bool, actions: &mut Vec<Action>
 fn pictures(ui: &mut Ui, file: &OpenFile) {
     let pictures = match &file.versions {
         Versions::Pictures(pictures) if pictures.iter().any(Option::is_some) => pictures,
-        _ if file.reading.is_some() => return drop(ui.spinner()),
-        _ => return drop(ui.weak("Binary file")),
+        _ => {
+            if file.reading.is_some() {
+                ui.spinner();
+            } else {
+                ui.weak("Binary file");
+            }
+            return;
+        }
     };
     ui.columns(2, |columns| {
         for ((ui, version), name) in columns.iter_mut().zip(pictures).zip(["Old", "New"]) {
