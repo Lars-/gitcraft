@@ -3,6 +3,7 @@
 
 mod app;
 mod blame;
+mod commands;
 mod details;
 mod diff;
 mod graph;

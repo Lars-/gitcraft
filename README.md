@@ -92,6 +92,14 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
   cherry-pick, a revert or a reset, one step at a time, and do it again. It reads git's reflog, so
   it works for what you did on the command line too. Undoing a commit puts its changes back in the
   index; your uncommitted work stays where it is.
+- **Keyboard**: press Ctrl+Shift+P (Cmd+Shift+P on a Mac) and type a few words of what you want
+  to do: every button of the toolbar and its menus, the tabs, and everything the right-click menu
+  of the selected commit and its branches and tags offers. Up and down pick one, Enter runs it.
+  The common ones have a shortcut of their own, shown in the palette and on the buttons: Ctrl+Z
+  and Ctrl+Shift+Z undo and redo, Ctrl+Shift+F fetches, Ctrl+Shift+Down pulls, Ctrl+Shift+Up
+  pushes, Ctrl+B makes a branch, Ctrl+Shift+S stashes, F5 refreshes, Ctrl+Enter commits, Ctrl+O
+  opens a repository, Ctrl+T, Ctrl+W and Ctrl+Tab open, close and go through the tabs. While you
+  type in a field, the field keeps its keys, apart from Ctrl+Enter.
 - **Safe by default**: a hard reset, deleting a branch with commits no other branch or tag has, a
   force push, dropping a stash and removing a remote all ask first, saying what will be lost.
 

@@ -82,6 +82,10 @@ pub enum Action {
     Confirm(Confirm),
     /// Delete a branch, asking first when no other branch or tag has all of its commits.
     DeleteBranch(String),
+    /// Put text on the clipboard.
+    Copy(String),
+    /// Ask for a folder, and open the repository in it.
+    PickRepo,
     /// Open a repository in a tab of its own, or show its tab if it is open.
     OpenRepo(PathBuf),
     /// Show a tab, or the start screen for `None`.
@@ -594,6 +598,15 @@ impl Workspace {
         })
     }
 
+    /// The commit the commit form makes, once it can: with a summary, and with staged changes
+    /// unless it amends.
+    pub fn commit(&self) -> Option<Op> {
+        let staged = self.snapshot.status.entries.iter().any(|entry| entry.staged.is_some());
+        let ready = !self.summary.trim().is_empty() && (staged || self.amend) && self.busy().is_none();
+        let message = [self.summary.trim(), self.description.trim()].join("\n\n");
+        ready.then_some(Op::Commit { message, amend: self.amend })
+    }
+
     /// The row of the selection in the graph, counting the uncommitted changes as row 0.
     pub fn selected_row(&self) -> Option<usize> {
         let wip = usize::from(!self.snapshot.status.is_clean());
@@ -714,7 +727,10 @@ impl Workspace {
                 }
                 Err(error) => self.error = Some(error.to_string()),
             },
-            Action::OpenRepo(_) | Action::ShowTab(_) | Action::CloseTab(_) => unreachable!("the app handles tabs"),
+            Action::Copy(text) => ctx.copy_text(text),
+            Action::PickRepo | Action::OpenRepo(_) | Action::ShowTab(_) | Action::CloseTab(_) => {
+                unreachable!("the app handles tabs")
+            }
         }
     }
 

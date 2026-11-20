@@ -51,10 +51,14 @@ drive it the way a user does, and keeps every benchmark as fast as before.
 - [x] Better diffs, part 2: the old and the new version side by side
 - [x] Better diffs, part 3: a picture's old and new version next to each other
 - [x] Better diffs, part 4: code in the colours of its language
+- [x] Keyboard, part 1: a command palette with everything the tabs, the toolbar and the selected
+      commit offer, and shortcuts for the common commands
 
 ## Next
 
-1. **Keyboard**: shortcuts for everything, and a command palette.
+1. **Keyboard, part 2**: shortcuts in the views (stage, unstage and discard the file or lines in
+   view, the next and previous file, close), and the start screen's clone and create in the
+   palette.
 2. **Settings**: light and dark theme, font size, date format, default pull mode.
 3. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
    over the network).
