@@ -267,68 +267,91 @@ fn paint_labels(painter: &Painter, rect: Rect, labels: &[Ref], colour: Color32, 
     painter.with_clip_rect(pill).galley(pill.min + Vec2::new(7.0, 3.0), galley, Color32::WHITE);
 }
 
-/// The right-click menu of a commit.
-pub fn commit_menu(ui: &mut Ui, id: ObjectId, labels: &[Ref], current: Option<&str>, actions: &mut Vec<Action>) {
-    let sha = &id.to_string();
-    let mut item = |ui: &mut Ui, text: &str, action: Action| {
-        if ui.button(text).clicked() {
-            actions.push(action);
-            ui.close();
-        }
-    };
+/// The right-click menu of a commit: what can be done with each branch and tag on it, then with
+/// the commit itself.
+fn commit_menu(ui: &mut Ui, id: ObjectId, labels: &[Ref], current: Option<&str>, actions: &mut Vec<Action>) {
     for label in labels {
-        ref_items(ui, label, current, &mut item);
+        menu(ui, ref_items(label, current), actions);
         ui.separator();
     }
-    item(ui, "Checkout this commit", Action::Run(Op::Checkout(sha.to_owned())));
-    item(ui, "Create branch here…", Action::Prompt(Prompt::Branch { at: sha.to_owned() }));
-    item(ui, "Create tag here…", Action::Prompt(Prompt::Tag { at: sha.to_owned() }));
-    item(ui, "Cherry-pick commit", Action::Run(Op::CherryPick(sha.to_owned())));
-    item(ui, "Revert commit", Action::Run(Op::Revert(sha.to_owned())));
-    item(ui, "Reword commit…", Action::Reword(id));
-    item(ui, "Interactive rebase onto this commit…", Action::Plan(sha.to_owned()));
-    ui.menu_button("Reset current branch to this commit", |ui| {
-        for (text, mode) in [
-            ("Soft: keep all changes", ResetMode::Soft),
-            ("Mixed: keep working copy", ResetMode::Mixed),
-            ("Hard: discard all changes", ResetMode::Hard),
-        ] {
-            let op = Op::Reset { to: sha.to_owned(), mode };
-            let action = if mode == ResetMode::Hard {
-                let question = format!(
-                    "Hard reset {} to {}, throwing away every uncommitted change?",
-                    current.unwrap_or("HEAD"),
-                    &sha[..7]
-                );
-                Action::Confirm(Confirm { question, verb: "Reset", op })
-            } else {
-                Action::Run(op)
-            };
-            item(ui, text, action);
+    menu(ui, commit_items(id, current), actions);
+}
+
+/// Menu items, each closing the menu with its action; the items of a submenu have its name and
+/// ` › ` before their own.
+pub fn menu(ui: &mut Ui, items: Vec<(String, Action)>, actions: &mut Vec<Action>) {
+    let mut items = items.into_iter().peekable();
+    while let Some((name, action)) = items.next() {
+        let Some((submenu, item)) = name.split_once(" › ") else {
+            if ui.button(&name).clicked() {
+                actions.push(action);
+                ui.close();
+            }
+            continue;
+        };
+        let mut inside = vec![(item.to_owned(), action)];
+        let prefix = format!("{submenu} › ");
+        while let Some((name, action)) = items.next_if(|(name, _)| name.starts_with(&prefix)) {
+            inside.push((name[prefix.len()..].to_owned(), action));
         }
-    });
-    if ui.button("Copy commit SHA").clicked() {
-        ui.ctx().copy_text(sha.to_owned());
-        ui.close();
+        ui.menu_button(submenu, |ui| menu(ui, inside, actions));
     }
 }
 
-/// The menu items for a branch or tag.
-pub fn ref_items(ui: &mut Ui, label: &Ref, current: Option<&str>, item: &mut impl FnMut(&mut Ui, &str, Action)) {
+/// What can be done with a commit; the resets in a submenu.
+pub fn commit_items(id: ObjectId, current: Option<&str>) -> Vec<(String, Action)> {
+    let sha = &id.to_string();
+    let items = [
+        ("Checkout this commit", Action::Run(Op::Checkout(sha.to_owned()))),
+        ("Create branch here…", Action::Prompt(Prompt::Branch { at: sha.to_owned() })),
+        ("Create tag here…", Action::Prompt(Prompt::Tag { at: sha.to_owned() })),
+        ("Cherry-pick commit", Action::Run(Op::CherryPick(sha.to_owned()))),
+        ("Revert commit", Action::Run(Op::Revert(sha.to_owned()))),
+        ("Reword commit…", Action::Reword(id)),
+        ("Interactive rebase onto this commit…", Action::Plan(sha.to_owned())),
+    ];
+    let mut items: Vec<_> = items.into_iter().map(|(name, action)| (name.to_owned(), action)).collect();
+    for (text, mode) in [
+        ("Soft: keep all changes", ResetMode::Soft),
+        ("Mixed: keep working copy", ResetMode::Mixed),
+        ("Hard: discard all changes", ResetMode::Hard),
+    ] {
+        let op = Op::Reset { to: sha.to_owned(), mode };
+        let action = if mode == ResetMode::Hard {
+            let question = format!(
+                "Hard reset {} to {}, throwing away every uncommitted change?",
+                current.unwrap_or("HEAD"),
+                &sha[..7]
+            );
+            Action::Confirm(Confirm { question, verb: "Reset", op })
+        } else {
+            Action::Run(op)
+        };
+        items.push((format!("Reset current branch to this commit › {text}"), action));
+    }
+    items.push(("Copy commit SHA".to_owned(), Action::Copy(sha.to_owned())));
+    items
+}
+
+/// What can be done with a branch or tag.
+pub fn ref_items(label: &Ref, current: Option<&str>) -> Vec<(String, Action)> {
     let name = &label.name;
     let into = current.unwrap_or("HEAD");
     match label.kind {
-        RefKind::Tag => item(ui, &format!("Delete tag {name}"), Action::Run(Op::DeleteTag(name.clone()))),
-        _ if Some(name.as_str()) == current => {}
+        RefKind::Tag => vec![(format!("Delete tag {name}"), Action::Run(Op::DeleteTag(name.clone())))],
+        _ if Some(name.as_str()) == current => Vec::new(),
         kind => {
             let local =
                 if kind == RefKind::Remote { name.split_once('/').map_or(name.as_str(), |(_, b)| b) } else { name };
-            item(ui, &format!("Checkout {name}"), Action::Run(Op::Checkout(local.to_owned())));
-            item(ui, &format!("Merge {name} into {into}"), Action::Run(Op::Merge(name.clone())));
-            item(ui, &format!("Rebase {into} onto {name}"), Action::Run(Op::Rebase(name.clone())));
+            let mut items = vec![
+                (format!("Checkout {name}"), Action::Run(Op::Checkout(local.to_owned()))),
+                (format!("Merge {name} into {into}"), Action::Run(Op::Merge(name.clone()))),
+                (format!("Rebase {into} onto {name}"), Action::Run(Op::Rebase(name.clone()))),
+            ];
             if kind == RefKind::Local {
-                item(ui, &format!("Delete {name}"), Action::DeleteBranch(name.clone()));
+                items.push((format!("Delete {name}"), Action::DeleteBranch(name.clone())));
             }
+            items
         }
     }
 }

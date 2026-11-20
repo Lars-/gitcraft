@@ -13,6 +13,7 @@ use gitcraft_core::git::{Git, Op};
 use tempfile::TempDir;
 
 use crate::app::{Action, Selection};
+use crate::commands;
 use crate::start::percent;
 use crate::theme;
 use crate::ui::{App, KEYS};
@@ -1460,4 +1461,158 @@ fn the_changed_files_stay_in_reach_below_a_long_commit_message() {
     harness.get_by_label_contains("Line 100 of a long story");
     let file = harness.get_by_label("file.txt").rect();
     assert!(file.bottom() <= 720.0, "the changed file is at {file:?}, below the window");
+}
+
+/// Opens the command palette and types `words` in it.
+fn palette(harness: &mut Harness<'_, App>, words: &str) {
+    harness.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::P);
+    settle(harness);
+    assert!(harness.get_by_label("Command").is_focused(), "the palette has the keyboard");
+    harness.get_by_label("Command").type_text(words);
+    settle(harness);
+}
+
+/// The names of the commands the palette lists, top to bottom.
+fn listed(harness: &Harness<'_, App>) -> Vec<String> {
+    harness.query_all_by_role(Role::ListBoxOption).filter_map(|row| row.accesskit_node().label()).collect()
+}
+
+#[test]
+fn the_command_palette_finds_a_command_by_words_of_its_name() {
+    let (_dir, git) = repo();
+    let mut harness = app(Some(git.dir()));
+
+    palette(&mut harness, "new br");
+    assert_eq!(listed(&harness), ["New branch…"]);
+    harness.key_press(Key::Enter);
+    settle(&mut harness);
+    assert!(harness.state().palette.is_none());
+    harness.get_by_label("Name").type_text("feature");
+    harness.key_press(Key::Enter);
+    settle(&mut harness);
+    assert_eq!(git.run(&["branch", "--show-current"]).unwrap().trim(), "feature");
+
+    palette(&mut harness, "no such thing");
+    assert_eq!(listed(&harness), Vec::<String>::new());
+    harness.get_by_label("No command has those words");
+    harness.key_press(Key::Enter);
+    settle(&mut harness);
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    assert!(harness.state().palette.is_none());
+    // Nothing behind the palette took the keys.
+    assert_eq!(harness.state().workspace().unwrap().prompt, None);
+}
+
+#[test]
+fn the_command_palette_has_what_the_selected_commit_offers() {
+    let (_dir, git) = repo();
+    let first = rev(&git, "HEAD");
+    git.run(&["tag", "v1"]).unwrap();
+    commit(&git, "Second commit");
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_role_and_label(Role::Button, "First commit").click();
+    settle(&mut harness);
+    let commit = format!("Commit {}", &first[..7]);
+
+    palette(&mut harness, "reset");
+    let reset = format!("{commit} › Reset current branch to this commit › ");
+    let modes = ["Soft: keep all changes", "Mixed: keep working copy", "Hard: discard all changes"];
+    assert_eq!(listed(&harness), modes.map(|mode| format!("{reset}{mode}")));
+    // Down and up go round at the ends, and the keyboard stays in the field.
+    for key in [Key::ArrowDown, Key::ArrowDown, Key::ArrowDown, Key::ArrowUp] {
+        harness.key_press(key);
+        harness.step();
+        assert!(harness.get_by_label("Command").is_focused());
+    }
+    settle(&mut harness);
+    harness.key_press(Key::Enter);
+    settle(&mut harness);
+    harness.get_by_label(&format!("Hard reset main to {}, throwing away every uncommitted change?", &first[..7]));
+    harness.get_by_label("Cancel").click();
+    settle(&mut harness);
+
+    palette(&mut harness, "tag");
+    assert_eq!(listed(&harness), [format!("{commit} › Delete tag v1"), format!("{commit} › Create tag here…")]);
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    palette(&mut harness, "copy sha");
+    harness.get_by_label(&format!("{commit} › Copy commit SHA")).click();
+    harness.step();
+    let copied = &harness.output().platform_output.commands;
+    assert!(copied.contains(&egui::OutputCommand::CopyText(first.trim().to_owned())), "{copied:?}");
+    settle(&mut harness);
+    // The palette took its keyboard along.
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    settle(&mut harness);
+    assert_eq!(log(&git), "First commit\n");
+}
+
+#[test]
+fn shortcuts_run_commands_but_leave_a_text_field_its_keys() {
+    let (_dir, git) = repo();
+    commit(&git, "Second commit");
+    let mut harness = app(Some(git.dir()));
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    settle(&mut harness);
+    assert_eq!(log(&git), "First commit\n");
+    harness.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
+    settle(&mut harness);
+    assert_eq!(log(&git), "Second commit\nFirst commit\n");
+
+    fs::write(git.dir().join("file.txt"), "Third commit").unwrap();
+    git.apply(&Op::Stage(vec!["file.txt".into()])).unwrap();
+    wait_until(&mut harness, "the change", |h| h.query_by_label("Uncommitted changes").is_some());
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    harness.get_by_label("Summary").click();
+    settle(&mut harness);
+    harness.get_by_label("Summary").type_text("Third commit");
+    // While typing, a new tab waits; committing does not.
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::T);
+    settle(&mut harness);
+    assert_eq!(harness.state().active, Some(0));
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    settle(&mut harness);
+    assert_eq!(log(&git), "Third commit\nSecond commit\nFirst commit\n");
+
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::T);
+    settle(&mut harness);
+    assert_eq!(harness.state().active, None);
+    // The start screen is the tab after the last.
+    harness.key_press_modifiers(Modifiers::CTRL, Key::Tab);
+    settle(&mut harness);
+    assert_eq!(harness.state().active, Some(0));
+    harness.key_press_modifiers(Modifiers::CTRL | Modifiers::SHIFT, Key::Tab);
+    settle(&mut harness);
+    assert_eq!(harness.state().active, None);
+    harness.key_press_modifiers(Modifiers::CTRL | Modifiers::SHIFT, Key::Tab);
+    settle(&mut harness);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::W);
+    settle(&mut harness);
+    assert!(harness.state().tabs.is_empty());
+}
+
+#[test]
+fn while_git_is_busy_the_keyboard_queues_what_it_runs_apart_from_undo() {
+    let (_dir, git) = repo();
+    commit(&git, "Second commit");
+    fs::write(git.dir().join("file.txt"), "changed").unwrap();
+    let mut harness = app(Some(git.dir()));
+    let ctx = harness.ctx.clone();
+    harness.state_mut().workspace_mut().unwrap().apply(&ctx, Action::Refresh);
+
+    let can = |name: &str| {
+        let commands = commands::all(harness.state());
+        commands.into_iter().find(|command| command.name.starts_with(name)).unwrap().action.is_some()
+    };
+    assert!(can("Stash") && can("Fetch") && can("New branch"));
+    assert!(!can("Undo"), "undo waits until it knows where HEAD is");
+    harness.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::S);
+    settle(&mut harness);
+    assert_eq!(git.run(&["stash", "list", "--format=%s"]).unwrap(), "On main: WIP on main\n");
+    assert_eq!(read(&git, "file.txt"), "Second commit");
 }

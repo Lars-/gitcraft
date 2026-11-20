@@ -7,6 +7,7 @@ use gitcraft_core::git::Op;
 use gitcraft_core::status::Change;
 
 use crate::app::{Action, Confirm, Selection, Workspace};
+use crate::commands::COMMIT;
 use crate::theme;
 
 /// Shows the panel.
@@ -168,10 +169,12 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     });
     ui.separator();
     let staged = staged.len();
-    ui.add(TextEdit::singleline(&mut ws.summary).hint_text("Summary").desired_width(f32::INFINITY));
+    ui.add(TextEdit::singleline(&mut ws.summary).hint_text("Summary").desired_width(f32::INFINITY))
+        .accessible_name("Summary");
     ui.add(
         TextEdit::multiline(&mut ws.description).hint_text("Description").desired_rows(4).desired_width(f32::INFINITY),
-    );
+    )
+    .accessible_name("Description");
     if ui.checkbox(&mut ws.amend, "Amend previous commit").changed() && ws.amend && ws.summary.is_empty() {
         let head = ws.snapshot.history.head.map(|row| ws.snapshot.history.ids[row]);
         if let Some(Ok(commit)) = head.map(|id| ws.commits.get(&ws.repo, id)) {
@@ -179,15 +182,15 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
             (ws.summary, ws.description) = (summary.to_owned(), description.trim().to_owned());
         }
     }
-    let ready = !ws.summary.trim().is_empty() && (staged > 0 || ws.amend) && ws.busy().is_none();
     let label = if ws.amend {
         "Amend previous commit".to_owned()
     } else {
         format!("Commit changes to {}", theme::count(staged, "file"))
     };
-    if ui.add_enabled(ready, Button::new(label).min_size(egui::vec2(ui.available_width(), 30.0))).clicked() {
-        let message = [ws.summary.trim(), ws.description.trim()].join("\n\n");
-        actions.push(Action::Run(Op::Commit { message, amend: ws.amend }));
+    let commit = ws.commit();
+    let button = ui.add_enabled(commit.is_some(), Button::new(label).min_size(egui::vec2(ui.available_width(), 30.0)));
+    if button.on_hover_text(ui.ctx().format_shortcut(&COMMIT)).clicked() {
+        actions.extend(commit.map(Action::Run));
     }
 }
 

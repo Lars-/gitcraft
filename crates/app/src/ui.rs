@@ -9,7 +9,8 @@ use gitcraft_core::git::Op;
 use gitcraft_core::repo::Repo;
 use gitcraft_core::status::Change;
 
-use crate::app::{Action, Confirm, Prompt, Selection, Workspace};
+use crate::app::{Action, Prompt, Workspace};
+use crate::commands::{self, Palette};
 use crate::start::Start;
 use crate::{blame, details, diff, graph, history, merge, rebase, sidebar, theme};
 
@@ -33,6 +34,8 @@ pub struct App {
     pub questions: Option<Receiver<Question>>,
     /// The question on screen, with the answer so far.
     question: Option<(Question, String)>,
+    /// The command palette, while it is open.
+    pub palette: Option<Palette>,
     focused: bool,
     pending: Vec<PathBuf>,
 }
@@ -110,12 +113,18 @@ impl App {
         }
         question(&ctx, &mut self.question);
         self.tabs.iter_mut().for_each(|ws| ws.poll(&ctx));
+        // The keys go by what can run before a reload starts by itself in this frame.
+        let commands = commands::all(self);
+        let mut actions = commands::shortcuts(&ctx, &commands);
+        if ctx.memory(|m| m.top_modal_layer().is_none()) && ctx.input_mut(|i| i.consume_shortcut(&commands::PALETTE)) {
+            self.palette = Some(Palette::default());
+        }
         // A tab out of sight reloads when it is shown.
         if let Some(ws) = self.workspace_mut() {
             ws.reload_if_changed(&ctx);
             ws.search_on(&ctx);
         }
-        let mut actions = Vec::new();
+        commands::palette(&ctx, &mut self.palette, &commands, &mut actions);
         if !self.tabs.is_empty() {
             egui::Panel::top("tabs").show(ui, |ui| tabs(ui, &self.tabs, self.active, &mut actions));
         }
@@ -132,6 +141,11 @@ impl App {
         self.focused = focused;
         for action in actions {
             match action {
+                Action::PickRepo => {
+                    if let Some(folder) = pick_folder("Open a repository") {
+                        self.open(&ctx, &folder);
+                    }
+                }
                 Action::OpenRepo(path) => self.open(&ctx, &path),
                 Action::CloseTab(tab) => self.close(tab),
                 Action::ShowTab(tab) => {
@@ -223,79 +237,24 @@ fn workspace(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
 }
 
 fn toolbar(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
-    let status = &ws.snapshot.status;
     ui.horizontal(|ui| {
-        ui.strong(status.branch.as_deref().unwrap_or("detached HEAD"));
+        ui.strong(ws.snapshot.status.branch.as_deref().unwrap_or("detached HEAD"));
         ui.separator();
+        // The buttons are off while git is busy, to show it.
         let idle = ws.busy().is_none();
-        for (verb, step) in [("Undo", &ws.snapshot.undo.last), ("Redo", &ws.snapshot.undo.undone)] {
-            let button = ui.add_enabled(idle && step.is_some(), Button::new(verb));
-            if let Some(step) = step
-                && button.on_hover_text(format!("{verb} {}", step.what)).clicked()
-            {
-                actions.push(Action::Run(step.op.clone()));
-            }
-        }
-        let count = |label: &str, n: u32| if n > 0 { format!("{label}  {n}") } else { label.to_owned() };
-        let at = match ws.selection {
-            Some(Selection::Commit(id)) => id.to_string(),
-            _ => "HEAD".to_owned(),
-        };
-        let remotes = &ws.snapshot.remotes;
-        let (branch, track) = (status.branch.as_deref().unwrap_or("HEAD"), status.upstream.is_none());
-        let push = match &status.upstream {
-            // A branch that went its own way since the last push only gets there by force.
-            Some(upstream) if status.ahead > 0 && status.behind > 0 => {
-                let lost = theme::count(status.behind as usize, "commit");
-                let question =
-                    format!("Force push {branch}, throwing away the {lost} on {upstream} that it does not have?");
-                let op = Op::Push { remote: None, track: false, force: true };
-                Action::Confirm(Confirm { question, verb: "Force push", op })
-            }
-            _ => {
-                // Like git, a branch without an upstream goes to the only remote, or else to origin.
-                let remote = match &remotes[..] {
-                    [only] => only.name.as_str(),
-                    _ => "origin",
-                };
-                Action::Run(Op::Push { remote: track.then(|| remote.to_owned()), track, force: false })
-            }
-        };
-        let pull_menu = [("Pull with merge", false), ("Pull with rebase", true)]
-            .map(|(text, rebase)| (text.to_owned(), Action::Run(Op::Pull { rebase })));
-        let mut push_menu = Vec::new();
-        for remote in remotes.iter().map(|remote| &remote.name) {
-            let push = |force| Op::Push { remote: Some(remote.clone()), track, force };
-            let question =
-                format!("Force push {branch} to {remote}, throwing away what it has there that {branch} does not?");
-            push_menu.extend([
-                (format!("Push to {remote}"), Action::Run(push(false))),
-                (
-                    format!("Force push to {remote}…"),
-                    Action::Confirm(Confirm { question, verb: "Force push", op: push(true) }),
-                ),
-                (format!("Push tags to {remote}"), Action::Run(Op::PushTags(remote.clone()))),
-            ]);
-        }
-        let buttons = [
-            ("Fetch", true, Action::Run(Op::Fetch), Vec::new()),
-            (&count("Pull", status.behind), true, Action::Run(Op::Pull { rebase: false }), pull_menu.into()),
-            (&count("Push", status.ahead), status.branch.is_some(), push, push_menu),
-            ("Branch", true, Action::Prompt(Prompt::Branch { at }), Vec::new()),
-            ("Stash", !status.is_clean(), Action::Run(Op::Stash(format!("WIP on {branch}"))), Vec::new()),
-            ("Pop", !ws.snapshot.stashes.is_empty(), Action::Run(Op::StashPop(0)), Vec::new()),
-            ("Refresh", true, Action::Refresh, Vec::new()),
-        ];
-        for (label, enabled, action, menu) in buttons {
-            let button = ui.add_enabled(idle && enabled, Button::new(label));
+        for (label, command, menu) in commands::toolbar(ws) {
+            let button = ui.add_enabled(idle && command.action.is_some(), Button::new(label));
+            let hint = command.hint(ui.ctx());
+            let button =
+                button.on_hover_text(if menu.is_empty() { hint } else { format!("{hint}\nRight-click for more") });
             if button.clicked() {
-                actions.push(action);
+                actions.extend(command.action);
             }
             if !menu.is_empty() {
-                button.on_hover_text("Right-click for more").context_menu(|ui| {
-                    for (text, action) in menu {
-                        if ui.button(text).clicked() {
-                            actions.push(action);
+                button.context_menu(|ui| {
+                    for command in menu {
+                        if ui.add_enabled(command.action.is_some(), Button::new(&command.name)).clicked() {
+                            actions.extend(command.action);
                             ui.close();
                         }
                     }

@@ -50,10 +50,8 @@ impl Start {
                 ui.weak("A fast git client");
                 ui.add_space(24.0);
                 let size = egui::vec2(220.0, 32.0);
-                if ui.add(Button::new("Open a repository…").min_size(size)).clicked()
-                    && let Some(folder) = pick_folder("Open a repository")
-                {
-                    actions.push(Action::OpenRepo(folder));
+                if ui.add(Button::new("Open a repository…").min_size(size)).clicked() {
+                    actions.push(Action::PickRepo);
                 }
                 ui.add_space(8.0);
                 let path = &mut self.path;
