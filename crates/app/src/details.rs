@@ -6,7 +6,7 @@ use gitcraft_core::diff::Source;
 use gitcraft_core::git::Op;
 use gitcraft_core::status::Change;
 
-use crate::app::{Action, Confirm, Selection, Workspace};
+use crate::app::{Action, Confirm, Selection, Workspace, in_commit};
 use crate::commands::COMMIT;
 use crate::theme;
 
@@ -57,8 +57,9 @@ fn file_menu(file: &Response, at: Option<&str>, path: &str, change: Change, acti
 }
 
 /// Throwing away the unstaged changes to a file, or the whole file when git does not track it.
-fn discard(change: Change, path: &str) -> Confirm {
-    if change == Change::Untracked {
+pub fn discard(source: &Source) -> Confirm {
+    let path = source.path();
+    if matches!(source, Source::Untracked(_)) {
         let question = format!("Delete {path}? Git does not track it.");
         return Confirm { question, verb: "Delete", op: Op::DeleteUntracked(vec![path.into()]) };
     }
@@ -91,10 +92,8 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     let underway = ws.snapshot.underway.as_ref();
     let open = ws.open_file.as_ref().map(|f| &f.source);
     let merging = ws.merge.as_ref().map(|m| m.path.as_str());
-    let entries = &ws.snapshot.status.entries;
-    let unstaged: Vec<_> = entries.iter().filter_map(|e| Some((e.unstaged?, e.path.as_str()))).collect();
-    let staged: Vec<_> = entries.iter().filter_map(|e| Some((e.staged?, e.path.as_str()))).collect();
-    let all = |list: &[(Change, &str)]| list.iter().map(|(_, path)| (*path).to_owned()).collect::<Vec<_>>();
+    let [unstaged, staged] = ws.changes();
+    let all = |list: &[(Change, Source)]| list.iter().map(|(_, source)| source.path().to_owned()).collect::<Vec<_>>();
     let half = (ui.available_height() - 210.0).max(120.0) / 2.0;
     // Before the first commit, no file has a history; one git does not track never has.
     let head = ws.snapshot.history.head.map(|_| "HEAD");
@@ -106,14 +105,10 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
         }
     });
     egui::ScrollArea::vertical().id_salt("unstaged").max_height(half).auto_shrink([false, true]).show(ui, |ui| {
-        for &(change, path) in &unstaged {
-            let source = if change == Change::Untracked {
-                Source::Untracked(path.into())
-            } else {
-                Source::Unstaged(path.into())
-            };
+        for (change, source) in &unstaged {
+            let (change, path) = (*change, source.path());
             let conflicted = matches!(change, Change::Conflicted { .. });
-            let shown = if conflicted { merging == Some(path) } else { open == Some(&source) };
+            let shown = if conflicted { merging == Some(path) } else { open == Some(source) };
             let response = file(ui, change, path, shown, |ui| {
                 // A conflicted file has its buttons on a line of their own, below.
                 if conflicted {
@@ -125,7 +120,7 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                 let button = ui.small_button("Discard");
                 button.widget_info(|| WidgetInfo::labeled(Role::Button, true, format!("Discard {path}")));
                 if button.clicked() {
-                    actions.push(Action::Confirm(discard(change, path)));
+                    actions.push(Action::Confirm(discard(source)));
                 }
             });
             file_menu(&response, head.filter(|_| change != Change::Untracked), path, change, actions);
@@ -141,7 +136,7 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                     Change::Conflicted { ours: true, theirs: true } => Action::Resolve(path.into()),
                     // A file one side deleted has no lines to line up.
                     Change::Conflicted { .. } => continue,
-                    _ => Action::Open(source),
+                    _ => Action::Open(source.clone()),
                 });
             }
         }
@@ -154,16 +149,16 @@ fn changes(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
         }
     });
     egui::ScrollArea::vertical().id_salt("staged").max_height(half).auto_shrink([false, true]).show(ui, |ui| {
-        for &(change, path) in &staged {
-            let source = Source::Staged(path.into());
-            let response = file(ui, change, path, open == Some(&source), |ui| {
+        for (change, source) in &staged {
+            let (change, path) = (*change, source.path());
+            let response = file(ui, change, path, open == Some(source), |ui| {
                 if ui.small_button("Unstage").clicked() {
                     actions.push(Action::Run(Op::Unstage(vec![path.into()])));
                 }
             });
             file_menu(&response, head, path, change, actions);
             if response.clicked() {
-                actions.push(Action::Open(source));
+                actions.push(Action::Open(source.clone()));
             }
         }
     });
@@ -237,7 +232,7 @@ fn commit(ui: &mut Ui, ws: &mut Workspace, id: ObjectId, actions: &mut Vec<Actio
     let open = ws.open_file.as_ref().map(|f| &f.source);
     egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
         for change in files {
-            let source = Source::Commit { commit: sha.clone(), path: change.path.clone(), from: change.from.clone() };
+            let source = in_commit(id, change);
             let response = file(ui, change.change, &change.path, open == Some(&source), |_| {});
             file_menu(&response, Some(&sha), &change.path, change.change, actions);
             if response.clicked() {

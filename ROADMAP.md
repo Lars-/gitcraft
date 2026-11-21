@@ -53,16 +53,16 @@ drive it the way a user does, and keeps every benchmark as fast as before.
 - [x] Better diffs, part 4: code in the colours of its language
 - [x] Keyboard, part 1: a command palette with everything the tabs, the toolbar and the selected
       commit offer, and shortcuts for the common commands
+- [x] Keyboard, part 2: shortcuts to stage, unstage or discard the file or the lines in view, to
+      go to the next and the previous file and back to the graph; the start screen's clone and
+      create in the palette
 
 ## Next
 
-1. **Keyboard, part 2**: shortcuts in the views (stage, unstage and discard the file or lines in
-   view, the next and previous file, close), and the start screen's clone and create in the
-   palette.
-2. **Settings**: light and dark theme, font size, date format, default pull mode.
-3. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
+1. **Settings**: light and dark theme, font size, date format, default pull mode.
+2. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
    over the network).
-4. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
+3. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
    (AppImage, .deb, Flatpak), signed where the platform expects it.
 
 ## After 1.0

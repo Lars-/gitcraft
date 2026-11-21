@@ -10,19 +10,42 @@ use gitcraft_core::diff::{self, LineKind, Source};
 use gitcraft_core::git::Op;
 
 use crate::app::{Action, Confirm, OpenFile, Picture, Versions};
-use crate::theme;
+use crate::commands::{self, Command};
+use crate::{details, theme};
 
 const LINE: f32 = 18.0;
 const NUMBER: f32 = 44.0;
 const FONT: FontId = FontId::monospace(12.5);
 
-/// What can be done with lines of the file.
-fn verbs(source: &Source) -> &'static [&'static str] {
+/// What can be done with the whole file, or with `lines` of it: git stages no lines of a file it
+/// does not track.
+fn verbs(source: &Source, lines: bool) -> &'static [&'static str] {
     match source {
         Source::Unstaged(_) => &["Stage", "Discard"],
+        Source::Untracked(_) if !lines => &["Stage", "Discard"],
         Source::Staged(_) => &["Unstage"],
         Source::Untracked(_) | Source::Commit { .. } => &[],
     }
+}
+
+/// What the keyboard and the palette do with the file: stage, unstage or discard the picked lines,
+/// or the whole file while none are picked.
+pub fn commands(file: &OpenFile) -> Vec<Command> {
+    let picked = |h, l| file.lines.contains(&(h, l));
+    let lines = theme::count(file.lines.len(), "line");
+    let verbs = verbs(&file.source, !file.lines.is_empty());
+    let commands = verbs.iter().map(|&verb| {
+        let (what, action) = match verb {
+            _ if !file.lines.is_empty() => (lines.as_str(), act(file, verb, &lines, &picked)),
+            "Stage" => ("file", Action::Run(Op::Stage(vec![file.source.path().into()]))),
+            "Unstage" => ("file", Action::Run(Op::Unstage(vec![file.source.path().into()]))),
+            _ => ("file", Action::Confirm(details::discard(&file.source))),
+        };
+        // Discarding asks first.
+        let name = format!("{verb} {what}{}", if verb == "Discard" { "…" } else { "" });
+        Command::new(name, commands::staging(verb), Some(action))
+    });
+    commands.collect()
 }
 
 /// Doing `verb` with the `selected` lines, which `what` names.
@@ -85,7 +108,7 @@ const SIDE_BY_SIDE: &str = "side by side";
 
 /// Shows the open file, with a way to close it when it fills the centre `alone`.
 pub fn show(ui: &mut Ui, file: &OpenFile, alone: bool, actions: &mut Vec<Action>) {
-    let verbs = verbs(&file.source);
+    let verbs = verbs(&file.source, true);
     let picked = |h, l| file.lines.contains(&(h, l));
     let lines = theme::count(file.lines.len(), "line");
     let id = egui::Id::unique(SIDE_BY_SIDE);
@@ -107,7 +130,8 @@ pub fn show(ui: &mut Ui, file: &OpenFile, alone: bool, actions: &mut Vec<Action>
                 ui.data_mut(|d| d.insert_persisted(id, side_by_side));
             }
             for verb in verbs {
-                if !file.lines.is_empty() && ui.button(format!("{verb} {lines}")).clicked() {
+                let keys = ui.ctx().format_shortcut(&commands::staging(verb));
+                if !file.lines.is_empty() && ui.button(format!("{verb} {lines}")).on_hover_text(keys).clicked() {
                     actions.push(act(file, verb, &lines, &picked));
                 }
             }
@@ -272,7 +296,7 @@ fn line(
     painter.galley(at(x + 6.0) - Vec2::Y * galley.size().y / 2.0, galley, color);
     let changed = matches!(line.kind, LineKind::Added | LineKind::Removed);
     if changed
-        && !verbs(&file.source).is_empty()
+        && !verbs(&file.source, true).is_empty()
         && ui.interact(rect, egui::Id::unique(("diff line", h, l)), Sense::click()).clicked()
     {
         actions.push(Action::ToggleLine(h, l));
