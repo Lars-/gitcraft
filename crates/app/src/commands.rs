@@ -5,9 +5,8 @@ use eframe::egui::{self, Button, Key, KeyboardShortcut, Modifiers, Role, TextEdi
 use gitcraft_core::git::Op;
 
 use crate::app::{Action, Confirm, Prompt, Selection, Workspace};
-use crate::graph;
-use crate::theme;
 use crate::ui::App;
+use crate::{diff, graph, theme};
 
 /// Opens the command palette.
 pub const PALETTE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::P);
@@ -18,6 +17,16 @@ pub const COMMIT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, K
 /// The shortcut of `key` with `modifiers`.
 const fn keys(modifiers: Modifiers, key: Key) -> KeyboardShortcut {
     KeyboardShortcut::new(modifiers, key)
+}
+
+/// The keys that stage, unstage or discard what the diff in view shows.
+pub fn staging(verb: &str) -> KeyboardShortcut {
+    let key = match verb {
+        "Stage" => Key::S,
+        "Unstage" => Key::U,
+        _ => Key::Backspace,
+    };
+    keys(Modifiers::COMMAND, key)
 }
 
 /// Something the user can do.
@@ -32,7 +41,8 @@ pub struct Command {
 }
 
 impl Command {
-    fn new(name: impl Into<String>, keys: impl Into<Option<KeyboardShortcut>>, action: Option<Action>) -> Self {
+    /// A command by its name, with its keys if any.
+    pub fn new(name: impl Into<String>, keys: impl Into<Option<KeyboardShortcut>>, action: Option<Action>) -> Self {
         Self { name: name.into(), keys: keys.into(), action }
     }
 
@@ -138,8 +148,8 @@ pub fn toolbar(ws: &Workspace) -> Vec<(String, Command, Vec<Command>)> {
     tools
 }
 
-/// Every command there is now: of the tabs, and of the repository on screen with its toolbar and
-/// its selected commit.
+/// Every command there is now: of the tabs and the start screen, and of the repository on screen
+/// with its toolbar, the file in view and the selected commit.
 pub fn all(app: &App) -> Vec<Command> {
     let cmd = Modifiers::COMMAND;
     let (ctrl, back) = (Modifiers::CTRL, Modifiers::CTRL.plus(Modifiers::SHIFT));
@@ -156,6 +166,8 @@ pub fn all(app: &App) -> Vec<Command> {
         Command::new("Close tab", keys(cmd, Key::W), app.active.map(Action::CloseTab)),
         Command::new("Next tab", keys(ctrl, Key::Tab), after(1)),
         Command::new("Previous tab", keys(back, Key::Tab), after(tabs - 1)),
+        Command::new("Clone a repository…", None, Some(Action::NewRepo { clone: true })),
+        Command::new("Create a repository…", None, Some(Action::NewRepo { clone: false })),
     ];
     let Some(ws) = app.workspace() else { return commands };
     for (_, command, menu) in toolbar(ws) {
@@ -163,6 +175,19 @@ pub fn all(app: &App) -> Vec<Command> {
         commands.extend(menu);
     }
     commands.push(Command::new("Commit", COMMIT, ws.commit().map(Action::Run)));
+    commands.extend(ws.open_file.as_ref().map(diff::commands).unwrap_or_default());
+    // The files of the details panel, one after the other; with none in view, from either end.
+    // Not with Alt: some window managers, such as labwc, move the window with Alt and an arrow.
+    let files = ws.listed();
+    let at = ws.open_file.as_ref().and_then(|file| files.iter().position(|source| *source == file.source));
+    let (next, previous) = (at.map_or(0, |at| at + 1), at.unwrap_or(files.len()).checked_sub(1));
+    for (name, key, to) in [("Next file", Key::ArrowDown, Some(next)), ("Previous file", Key::ArrowUp, previous)] {
+        let to = to.and_then(|to| files.get(to)).cloned();
+        commands.push(Command::new(name, keys(cmd, key), to.map(Action::Open)));
+    }
+    let away = ws.open_file.is_some() || ws.merge.is_some() || ws.plan.is_some();
+    let back = (away || ws.history.is_some() || ws.blame.is_some()).then_some(Action::CloseFile);
+    commands.push(Command::new("Back to the graph", keys(Modifiers::NONE, Key::Escape), back));
     if let Some(row) = ws.selected_commit() {
         let history = &ws.snapshot.history;
         let (id, current) = (history.ids[row], ws.snapshot.status.branch.as_deref());
@@ -176,14 +201,15 @@ pub fn all(app: &App) -> Vec<Command> {
 }
 
 /// The actions of the shortcuts pressed in this frame. None while a dialog is open; while a text
-/// field has the keyboard only committing, since the field uses the other keys itself.
+/// field has the keyboard only committing, since the field uses the other keys itself. Escape is
+/// for the views: it leaves a text field, or else the view.
 pub fn shortcuts(ctx: &egui::Context, commands: &[Command]) -> Vec<Action> {
     if ctx.memory(|m| m.top_modal_layer().is_some()) {
         return Vec::new();
     }
     let typing = ctx.text_edit_focused();
     let mut keyed: Vec<_> = commands.iter().filter_map(|command| Some((command.keys?, command))).collect();
-    keyed.retain(|(keys, _)| !typing || *keys == COMMIT);
+    keyed.retain(|(keys, _)| keys.logical_key != Key::Escape && (!typing || *keys == COMMIT));
     // egui takes Ctrl+Shift+Z for Ctrl+Z too, so the one with more keys goes first.
     keyed.sort_by_key(|(keys, _)| std::cmp::Reverse(keys.modifiers.shift));
     // A shortcut of a command that cannot run now does nothing, rather than fall through.

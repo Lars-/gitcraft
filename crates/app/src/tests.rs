@@ -9,6 +9,7 @@ use eframe::egui::{self, Key, Modifiers, Role};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use gitcraft_core::askpass;
+use gitcraft_core::diff::Source;
 use gitcraft_core::git::{Git, Op};
 use tempfile::TempDir;
 
@@ -1615,4 +1616,120 @@ fn while_git_is_busy_the_keyboard_queues_what_it_runs_apart_from_undo() {
     settle(&mut harness);
     assert_eq!(git.run(&["stash", "list", "--format=%s"]).unwrap(), "On main: WIP on main\n");
     assert_eq!(read(&git, "file.txt"), "Second commit");
+}
+
+/// The diff in view, if any.
+fn in_view(harness: &Harness<'_, App>) -> Option<Source> {
+    harness.state().workspace().unwrap().open_file.as_ref().map(|file| file.source.clone())
+}
+
+/// Presses `key` with `modifiers`, and lets the app carry out what it does.
+fn press(harness: &mut Harness<'_, App>, modifiers: Modifiers, key: Key) {
+    harness.key_press_modifiers(modifiers, key);
+    settle(harness);
+}
+
+/// Commits `files`, each with its text.
+fn commit_files(git: &Git, files: &[(&str, &str)], message: &str) {
+    for (path, text) in files {
+        fs::write(git.dir().join(path), text).unwrap();
+    }
+    git.apply(&Op::Stage(files.iter().map(|(path, _)| (*path).into()).collect())).unwrap();
+    git.apply(&Op::Commit { message: message.into(), amend: false }).unwrap();
+}
+
+#[test]
+fn stage_unstage_and_discard_the_file_in_view_by_keys() {
+    let (_dir, git) = repo();
+    commit_files(&git, &[("a.txt", "a\n"), ("b.txt", "one\n")], "Add two files");
+    fs::write(git.dir().join("a.txt"), "changed\n").unwrap();
+    fs::write(git.dir().join("b.txt"), "one\ntwo\nthree\n").unwrap();
+    fs::write(git.dir().join("new.txt"), "new\n").unwrap();
+    let staged = || git.run(&["diff", "--cached", "--name-only"]).unwrap();
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    let cmd = Modifiers::COMMAND;
+
+    // Down and up go from file to file, in the order of the panel.
+    press(&mut harness, cmd, Key::ArrowDown);
+    assert_eq!(in_view(&harness), Some(Source::Unstaged("a.txt".into())));
+    press(&mut harness, cmd, Key::ArrowDown);
+    press(&mut harness, cmd, Key::ArrowDown);
+    assert_eq!(in_view(&harness), Some(Source::Untracked("new.txt".into())));
+    press(&mut harness, cmd, Key::ArrowUp);
+    press(&mut harness, cmd, Key::ArrowUp);
+
+    // A file staged as a whole gives its place to the next.
+    press(&mut harness, cmd, Key::S);
+    assert_eq!(staged(), "a.txt\n");
+    assert_eq!(in_view(&harness), Some(Source::Unstaged("b.txt".into())));
+
+    // With lines picked, the keys are for those lines.
+    let [two] = painted_at(&harness, "+ two")[..] else { panic!("no line two") };
+    click_at(&mut harness, two + egui::vec2(8.0, 4.0));
+    press(&mut harness, cmd, Key::S);
+    assert_eq!(git.run(&["show", ":b.txt"]).unwrap(), "one\ntwo\n");
+    assert_eq!(in_view(&harness), Some(Source::Unstaged("b.txt".into())), "b.txt has a change left");
+
+    // Discarding asks first.
+    press(&mut harness, cmd, Key::Backspace);
+    harness.get_by_label("Discard the unstaged changes to b.txt?");
+    harness.get_by_label("Discard").click();
+    settle(&mut harness);
+    assert_eq!(read(&git, "b.txt"), "one\ntwo\n");
+    assert_eq!(in_view(&harness), Some(Source::Untracked("new.txt".into())));
+    press(&mut harness, cmd, Key::S);
+    assert_eq!(staged(), "a.txt\nb.txt\nnew.txt\n");
+    assert_eq!(in_view(&harness), None, "no unstaged file is left to show");
+
+    // Unstaging goes the same way through the staged files.
+    press(&mut harness, cmd, Key::ArrowDown);
+    press(&mut harness, cmd, Key::ArrowDown);
+    assert_eq!(in_view(&harness), Some(Source::Staged("b.txt".into())));
+    press(&mut harness, cmd, Key::U);
+    assert_eq!(staged(), "a.txt\nnew.txt\n");
+    assert_eq!(in_view(&harness), Some(Source::Staged("new.txt".into())));
+}
+
+#[test]
+fn the_keyboard_goes_through_a_commit_s_files_and_back_to_the_graph() {
+    let (_dir, git) = repo();
+    commit_files(&git, &[("a.txt", "a\n"), ("b.txt", "b\n")], "Add a and b");
+    let head = rev(&git, "HEAD").trim().to_owned();
+    let file = |path: &str| Some(Source::Commit { commit: head.clone(), path: path.into(), from: None });
+    let mut harness = app(Some(git.dir()));
+
+    // Down from the graph opens the first file of the selected commit; the last one stays.
+    for (key, path) in [(Key::ArrowDown, "a.txt"), (Key::ArrowDown, "b.txt"), (Key::ArrowDown, "b.txt")] {
+        press(&mut harness, Modifiers::COMMAND, key);
+        assert_eq!(in_view(&harness), file(path));
+    }
+    press(&mut harness, Modifiers::COMMAND, Key::ArrowUp);
+    assert_eq!(in_view(&harness), file("a.txt"));
+
+    // A commit's file has nothing to stage, and the first has none before it.
+    palette(&mut harness, "file");
+    assert_eq!(listed(&harness), ["Next file", "Previous file"]);
+    assert!(harness.get_by_label("Previous file").accesskit_node().is_disabled());
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    palette(&mut harness, "back");
+    harness.key_press(Key::Enter);
+    settle(&mut harness);
+    assert_eq!(in_view(&harness), None);
+    harness.get_by_role_and_label(Role::Button, "Add a and b");
+
+    // The start screen's dialogs are in the palette too.
+    for (words, title) in [("clone", "Clone a repository"), ("create", "Create a repository")] {
+        palette(&mut harness, words);
+        harness.key_press(Key::Enter);
+        settle(&mut harness);
+        assert_eq!(harness.state().active, None);
+        harness.get_by_label(title);
+        harness.get_by_label("Cancel").click();
+        settle(&mut harness);
+        harness.key_press_modifiers(Modifiers::CTRL, Key::Tab);
+        settle(&mut harness);
+    }
 }

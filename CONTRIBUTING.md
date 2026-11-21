@@ -84,9 +84,10 @@ Its tests run against real repositories made with `git` in a temporary folder
   background thread and is followed by a reload, so the window never waits; what the user asks for
   in the meantime runs next. The tab on screen also reloads by itself when its watcher saw a
   change.
-- `commands.rs` names what the tabs, the toolbar and the selected commit offer, with their
-  shortcuts, for the toolbar itself, the keyboard and the command palette, which finds any of
-  them by a few words of its name. Shortcuts wait while a text field has the keyboard.
+- `commands.rs` names what the tabs, the start screen, the toolbar, the file in view and the
+  selected commit offer, with their shortcuts, for the toolbar itself, the keyboard and the
+  command palette, which finds any of them by a few words of its name. Shortcuts wait while a
+  text field has the keyboard.
 - `start.rs` (open, clone and create), `ui.rs` (tabs and toolbar), `graph.rs`, `sidebar.rs`, `details.rs`,
   `diff.rs`, `history.rs` (a file's history), `blame.rs` (who last changed each line),
   `merge.rs` (a conflicted file) and `rebase.rs` (an interactive rebase) draw the views, and

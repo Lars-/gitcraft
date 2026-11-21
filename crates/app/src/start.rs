@@ -63,7 +63,7 @@ impl Start {
                 ui.add_space(8.0);
                 for (label, clone) in [("Clone a repository…", true), ("Create a repository…", false)] {
                     if ui.add(Button::new(label).min_size(size)).clicked() {
-                        self.dialog = Some(Dialog::new(clone, recent));
+                        actions.push(Action::NewRepo { clone });
                     }
                 }
                 if let Some(error) = &self.error {
@@ -118,7 +118,7 @@ enum Event {
 
 impl Dialog {
     /// Starts in the folder of the last repository.
-    fn new(clone: bool, recent: &[PathBuf]) -> Self {
+    pub fn new(clone: bool, recent: &[PathBuf]) -> Self {
         let location = recent.first().and_then(|repo| repo.parent());
         Self { clone, location: location.map(|l| l.display().to_string()).unwrap_or_default(), ..Self::default() }
     }

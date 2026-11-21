@@ -92,6 +92,11 @@ pub enum Action {
     ShowTab(Option<usize>),
     /// Close a tab.
     CloseTab(usize),
+    /// Clone a repository, or create an empty one, from the dialog of the start screen.
+    NewRepo {
+        /// Clone, or else create.
+        clone: bool,
+    },
 }
 
 /// What the details panel shows.
@@ -361,11 +366,16 @@ pub struct FileHistory {
     pub reading: Reading<Changes>,
 }
 
+/// The diff of a file in a commit.
+pub fn in_commit(commit: ObjectId, file: &FileChange) -> Source {
+    Source::Commit { commit: commit.to_string(), path: file.path.clone(), from: file.from.clone() }
+}
+
 impl FileHistory {
     /// The diff of the file in the commit in `row`.
     pub fn source(&self, row: usize) -> Source {
         let (id, file) = &self.commits[row];
-        Source::Commit { commit: id.to_string(), path: file.path.clone(), from: file.from.clone() }
+        in_commit(*id, file)
     }
 
     /// Reads the history, in the background.
@@ -607,6 +617,37 @@ impl Workspace {
         ready.then_some(Op::Commit { message, amend: self.amend })
     }
 
+    /// The changed files in the working tree, unstaged and staged, each with its diff.
+    pub fn changes(&self) -> [Vec<(Change, Source)>; 2] {
+        let entries = &self.snapshot.status.entries;
+        let unstaged = entries.iter().filter_map(|e| {
+            let change = e.unstaged?;
+            let path = e.path.clone();
+            Some((change, if change == Change::Untracked { Source::Untracked(path) } else { Source::Unstaged(path) }))
+        });
+        let staged = entries.iter().filter_map(|e| Some((e.staged?, Source::Staged(e.path.clone()))));
+        [unstaged.collect(), staged.collect()]
+    }
+
+    /// The diffs the details panel lists, top to bottom: of the selected commit, or of the
+    /// uncommitted changes apart from conflicted files, which open to be resolved instead.
+    pub fn listed(&self) -> Vec<Source> {
+        match self.selection {
+            Some(Selection::Commit(id)) => {
+                let files = self.files.iter().filter(|(of, _)| *of == id).flat_map(|(_, files)| files);
+                files.map(|file| in_commit(id, file)).collect()
+            }
+            Some(Selection::Wip) => {
+                let changes = self.changes().into_iter().flatten();
+                changes
+                    .filter(|(change, _)| !matches!(change, Change::Conflicted { .. }))
+                    .map(|(_, source)| source)
+                    .collect()
+            }
+            None => Vec::new(),
+        }
+    }
+
     /// The row of the selection in the graph, counting the uncommitted changes as row 0.
     pub fn selected_row(&self) -> Option<usize> {
         let wip = usize::from(!self.snapshot.status.is_clean());
@@ -728,7 +769,11 @@ impl Workspace {
                 Err(error) => self.error = Some(error.to_string()),
             },
             Action::Copy(text) => ctx.copy_text(text),
-            Action::PickRepo | Action::OpenRepo(_) | Action::ShowTab(_) | Action::CloseTab(_) => {
+            Action::PickRepo
+            | Action::OpenRepo(_)
+            | Action::ShowTab(_)
+            | Action::CloseTab(_)
+            | Action::NewRepo { .. } => {
                 unreachable!("the app handles tabs")
             }
         }
@@ -938,6 +983,7 @@ impl Workspace {
             Ok((failed, snapshot, watch)) => (failed, Some(snapshot), watch),
         };
         let job = self.job.take().expect("a job is running");
+        let place = self.place();
         self.quiet_until = Instant::now() + job.started.elapsed().max(Duration::from_millis(100));
         if !self.queue.is_empty() {
             let next = self.queue.remove(0);
@@ -1013,22 +1059,39 @@ impl Workspace {
                 Err(error) => (self.plan, self.error) = (None, Some(error.to_string())),
             }
         }
-        if let Some(file) = &mut self.open_file {
-            // A file in the working tree without changes left, or gone altogether, closes.
-            let entries = &self.snapshot.status.entries;
-            if !matches!(file.source, Source::Commit { .. }) && !entries.iter().any(|e| e.path == file.source.path()) {
-                self.open_file = None;
-                return;
+        self.reread(ctx, place);
+    }
+
+    /// Where the file in view is among the changes in the working tree: on which side, and where.
+    fn place(&self) -> Option<(usize, usize)> {
+        let file = self.open_file.as_ref()?;
+        let mut sides = self.changes().into_iter().enumerate();
+        sides.find_map(|(side, files)| Some((side, files.iter().position(|(_, source)| *source == file.source)?)))
+    }
+
+    /// Reads the file in view again after a reload. A file in the working tree without changes
+    /// left on its side, as once it is staged, gives the `place` it had to the next file there, or
+    /// closes.
+    fn reread(&mut self, ctx: &egui::Context, place: Option<(usize, usize)>) {
+        let changes = self.changes();
+        let Some(file) = &mut self.open_file else { return };
+        let listed = changes.iter().flatten().any(|(_, source)| *source == file.source);
+        if !listed && !matches!(file.source, Source::Commit { .. }) {
+            self.open_file = None;
+            let next = place.and_then(|(side, at)| changes[side].get(at));
+            if let Some((_, next)) = next.filter(|(change, _)| !matches!(change, Change::Conflicted { .. })) {
+                self.open(ctx, next.clone());
             }
-            // The picked lines stay picked as long as the diff stays the same.
-            match diff::read(&self.repo.git, &file.source) {
-                Ok(diff) if diff == file.diff => {}
-                Ok(diff) => {
-                    (file.diff, file.lines) = (diff, BTreeSet::new());
-                    file.read_versions(ctx, &self.repo);
-                }
-                Err(error) => self.error = Some(error.to_string()),
+            return;
+        }
+        // The picked lines stay picked as long as the diff stays the same.
+        match diff::read(&self.repo.git, &file.source) {
+            Ok(diff) if diff == file.diff => {}
+            Ok(diff) => {
+                (file.diff, file.lines) = (diff, BTreeSet::new());
+                file.read_versions(ctx, &self.repo);
             }
+            Err(error) => self.error = Some(error.to_string()),
         }
     }
 }

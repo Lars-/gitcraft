@@ -11,7 +11,7 @@ use gitcraft_core::status::Change;
 
 use crate::app::{Action, Prompt, Workspace};
 use crate::commands::{self, Palette};
-use crate::start::Start;
+use crate::start::{Dialog, Start};
 use crate::{blame, details, diff, graph, history, merge, rebase, sidebar, theme};
 
 const RECENT: usize = 10;
@@ -148,6 +148,10 @@ impl App {
                 }
                 Action::OpenRepo(path) => self.open(&ctx, &path),
                 Action::CloseTab(tab) => self.close(tab),
+                Action::NewRepo { clone } => {
+                    self.active = None;
+                    self.start.dialog = Some(Dialog::new(clone, &self.recent));
+                }
                 Action::ShowTab(tab) => {
                     self.active = tab;
                     // It may have changed while it was out of sight.
