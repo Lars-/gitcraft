@@ -4,6 +4,8 @@ use eframe::egui::{self, Color32};
 use gitcraft_core::date;
 use gitcraft_core::status::Change;
 
+use crate::settings;
+
 /// One colour per graph lane, repeating.
 const LANES: [Color32; 10] = [
     Color32::from_rgb(0x38, 0xbd, 0xf8),
@@ -64,16 +66,43 @@ pub fn apply(ctx: &egui::Context) {
     });
 }
 
-/// How long before `now` (seconds since 1970) `time` was, or its date when that is over a week.
-pub fn when(time: date::Time, now: i64) -> String {
-    let ago = now - time.seconds;
-    let plural = |n: i64, unit: &str| format!("{} ago", count(n.unsigned_abs().try_into().unwrap_or(usize::MAX), unit));
-    match ago {
-        ..60 => "just now".to_owned(),
-        60..3_600 => plural(ago / 60, "minute"),
-        3_600..86_400 => plural(ago / 3_600, "hour"),
-        86_400..604_800 => plural(ago / 86_400, "day"),
-        _ => time.format_or_unix(date::time::format::SHORT),
+/// How the dates of commits read: how long ago, or the date and the time.
+#[derive(Debug, Clone, Copy)]
+pub struct Dates {
+    /// Seconds since 1970, now.
+    now: i64,
+    /// The date and the time, rather than how long ago.
+    full: bool,
+}
+
+/// A date and a time, to the minute.
+const FULL: date::time::CustomFormat = date::time::CustomFormat::new("%Y-%m-%d %H:%M");
+
+impl Dates {
+    /// As the settings have them, now.
+    pub fn of(ctx: &egui::Context) -> Self {
+        Self { now: now(), full: settings::FULL_DATES.on(ctx) }
+    }
+
+    /// When `time` was: how long before now, or its date when that is over a week; or else the date
+    /// and the time.
+    pub fn when(self, time: date::Time) -> String {
+        let ago = self.now - time.seconds;
+        let plural =
+            |n: i64, unit: &str| format!("{} ago", count(n.unsigned_abs().try_into().unwrap_or(usize::MAX), unit));
+        match ago {
+            _ if self.full => time.format_or_unix(FULL),
+            ..60 => "just now".to_owned(),
+            60..3_600 => plural(ago / 60, "minute"),
+            3_600..86_400 => plural(ago / 3_600, "hour"),
+            86_400..604_800 => plural(ago / 86_400, "day"),
+            _ => time.format_or_unix(date::time::format::SHORT),
+        }
+    }
+
+    /// The room a date takes in a list, with a margin on either side.
+    pub fn width(self) -> f32 {
+        if self.full { 128.0 } else { 100.0 }
     }
 }
 
@@ -89,7 +118,7 @@ pub fn capital(word: &str) -> String {
 }
 
 /// Seconds since 1970, now.
-pub fn now() -> i64 {
+fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| i64::try_from(since.as_secs()).unwrap_or(i64::MAX))
@@ -103,11 +132,14 @@ mod tests {
     fn times_read_naturally() {
         let at = |seconds| date::Time { seconds, offset: 3_600 };
         let now = 2_000_000_000;
-        assert_eq!(when(at(now - 5), now), "just now");
-        assert_eq!(when(at(now - 60), now), "1 minute ago");
-        assert_eq!(when(at(now - 7_200), now), "2 hours ago");
-        assert_eq!(when(at(now - 3 * 86_400), now), "3 days ago");
-        assert_eq!(when(at(1_700_000_000), now), "2023-11-14");
+        let when = |seconds| Dates { now, full: false }.when(at(seconds));
+        assert_eq!(when(now - 5), "just now");
+        assert_eq!(when(now - 60), "1 minute ago");
+        assert_eq!(when(now - 7_200), "2 hours ago");
+        assert_eq!(when(now - 3 * 86_400), "3 days ago");
+        assert_eq!(when(1_700_000_000), "2023-11-14");
+        // In the time zone of the commit.
+        assert_eq!(Dates { now, full: true }.when(at(now - 5)), "2033-05-18 04:33");
     }
 
     #[test]

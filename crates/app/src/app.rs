@@ -97,6 +97,8 @@ pub enum Action {
         /// Clone, or else create.
         clone: bool,
     },
+    /// Show the settings.
+    Settings,
 }
 
 /// What the details panel shows.
@@ -773,8 +775,9 @@ impl Workspace {
             | Action::OpenRepo(_)
             | Action::ShowTab(_)
             | Action::CloseTab(_)
-            | Action::NewRepo { .. } => {
-                unreachable!("the app handles tabs")
+            | Action::NewRepo { .. }
+            | Action::Settings => {
+                unreachable!("the app handles tabs and the settings")
             }
         }
     }

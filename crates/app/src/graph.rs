@@ -19,7 +19,6 @@ pub const ROW: f32 = 28.0;
 const LANE: f32 = 16.0;
 const LABELS: f32 = 170.0;
 const AUTHOR: f32 = 140.0;
-const DATE: f32 = 100.0;
 
 /// A count as a distance in points.
 pub fn points(n: usize) -> f32 {
@@ -40,7 +39,7 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     }
     let selected = ws.selected_row();
     let current = ws.snapshot.status.branch.clone();
-    let now = theme::now();
+    let dates = theme::Dates::of(ui.ctx());
     ui.spacing_mut().item_spacing.y = 0.0;
     area.show_rows(ui, ROW, total, |ui, range| {
         // egui draws a row or two more than fit; only the rows wholly on screen count as visible.
@@ -51,8 +50,8 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
         let width = ui.available_width();
         let lanes = (LANE * points(history.graph.width().max(1) + 1)).min(width / 3.0);
         let labels_width = LABELS.min(width / 5.0);
-        let (author_width, date_width) =
-            if width - labels_width - lanes > 3.0 * (AUTHOR + DATE) { (AUTHOR, DATE) } else { (0.0, DATE) };
+        let date_width = dates.width();
+        let author_width = if width - labels_width - lanes > 3.0 * (AUTHOR + date_width) { AUTHOR } else { 0.0 };
         let first = range.start.saturating_sub(wip);
         let rows = history.graph.rows(first..range.end.saturating_sub(wip));
         let head_lane = history.head.and_then(|head| history.graph.rows(head..head + 1).pop()).map_or(0, |r| r.lane);
@@ -110,7 +109,7 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                         put(ui, author, egui::RichText::new(&commit.author).weak());
                     }
                     let date = Rect::from_x_y_ranges(rect.right() - date_width..=rect.right() - 8.0, rect.y_range());
-                    put(ui, date, egui::RichText::new(theme::when(commit.time, now)).weak());
+                    put(ui, date, egui::RichText::new(dates.when(commit.time)).weak());
                 }
                 Err(error) => put(ui, text, egui::RichText::new(error.to_string()).color(theme::ERROR)),
             }

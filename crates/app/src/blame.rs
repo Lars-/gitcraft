@@ -8,8 +8,8 @@ use crate::graph::put;
 use crate::theme;
 
 const LINE: f32 = 18.0;
-/// The width of the commit beside the lines.
-const GUTTER: f32 = 400.0;
+/// The width of the commit beside the lines, without its date.
+const GUTTER: f32 = 300.0;
 
 /// Shows the blame of the workspace.
 pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
@@ -29,7 +29,8 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
         });
     });
     ui.separator();
-    let (font, now) = (FontId::monospace(12.5), theme::now());
+    let (font, dates) = (FontId::monospace(12.5), theme::Dates::of(ui.ctx()));
+    let (width, date) = (GUTTER + dates.width(), dates.width());
     ui.spacing_mut().item_spacing.y = 0.0;
     egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, LINE, blame.lines.len(), |ui, rows| {
         let top = ui.clip_rect().top();
@@ -40,14 +41,14 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                 ("Not committed yet".to_owned(), String::new(), String::new())
             } else {
                 match commits.get(repo, *id) {
-                    Ok(commit) => (commit.summary().to_owned(), commit.author.clone(), theme::when(commit.time, now)),
+                    Ok(commit) => (commit.summary().to_owned(), commit.author.clone(), dates.when(commit.time)),
                     Err(error) => (error.to_string(), String::new(), String::new()),
                 }
             };
             let line = if id.is_null() { Selection::Wip } else { Selection::Commit(*id) };
             let picked = *selection == Some(line);
             let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), LINE), Sense::click());
-            let gutter = Rect::from_min_size(rect.min, Vec2::new(GUTTER, LINE));
+            let gutter = Rect::from_min_size(rect.min, Vec2::new(width, LINE));
             let painter = ui.painter_at(rect);
             if picked {
                 painter.rect_filled(rect, 0.0, ui.visuals().selection.bg_fill);
@@ -68,11 +69,11 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                     Rect::from_x_y_ranges(gutter.left() + left..=gutter.right() - right, rect.y_range())
                 };
                 if !id.is_null() {
-                    put(ui, column(8.0, GUTTER - 64.0), RichText::new(&id.to_string()[..7]).monospace().weak());
+                    put(ui, column(8.0, width - 64.0), RichText::new(&id.to_string()[..7]).monospace().weak());
                 }
-                put(ui, column(72.0, 192.0), summary.as_str());
-                put(ui, column(GUTTER - 184.0, 92.0), RichText::new(author).weak());
-                put(ui, column(GUTTER - 84.0, 8.0), RichText::new(when).weak());
+                put(ui, column(72.0, date + 108.0), summary.as_str());
+                put(ui, column(width - date - 100.0, date + 8.0), RichText::new(author).weak());
+                put(ui, column(width - date, 8.0), RichText::new(when).weak());
             }
             let at = |x: f32| gutter.right_center() + Vec2::X * x;
             painter.text(at(44.0), Align2::RIGHT_CENTER, (row + 1).to_string(), font.clone(), Color32::DARK_GRAY);

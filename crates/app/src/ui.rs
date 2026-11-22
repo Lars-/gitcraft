@@ -12,7 +12,7 @@ use gitcraft_core::status::Change;
 use crate::app::{Action, Prompt, Workspace};
 use crate::commands::{self, Palette};
 use crate::start::{Dialog, Start};
-use crate::{blame, details, diff, graph, history, merge, rebase, sidebar, theme};
+use crate::{blame, details, diff, graph, history, merge, rebase, settings, sidebar, theme};
 
 const RECENT: usize = 10;
 
@@ -36,6 +36,8 @@ pub struct App {
     question: Option<(Question, String)>,
     /// The command palette, while it is open.
     pub palette: Option<Palette>,
+    /// Whether the settings are open.
+    pub settings: bool,
     focused: bool,
     pending: Vec<PathBuf>,
 }
@@ -114,7 +116,7 @@ impl App {
         question(&ctx, &mut self.question);
         self.tabs.iter_mut().for_each(|ws| ws.poll(&ctx));
         // The keys go by what can run before a reload starts by itself in this frame.
-        let commands = commands::all(self);
+        let commands = commands::all(&ctx, self);
         let mut actions = commands::shortcuts(&ctx, &commands);
         if ctx.memory(|m| m.top_modal_layer().is_none()) && ctx.input_mut(|i| i.consume_shortcut(&commands::PALETTE)) {
             self.palette = Some(Palette::default());
@@ -125,9 +127,8 @@ impl App {
             ws.search_on(&ctx);
         }
         commands::palette(&ctx, &mut self.palette, &commands, &mut actions);
-        if !self.tabs.is_empty() {
-            egui::Panel::top("tabs").show(ui, |ui| tabs(ui, &self.tabs, self.active, &mut actions));
-        }
+        self.settings = self.settings && settings::show(&ctx);
+        egui::Panel::top("tabs").show(ui, |ui| tabs(ui, &self.tabs, self.active, &mut actions));
         let focused = ui.input(|i| i.focused);
         match self.active {
             None => self.start.show(ui, &self.recent, &mut actions),
@@ -152,6 +153,7 @@ impl App {
                     self.active = None;
                     self.start.dialog = Some(Dialog::new(clone, &self.recent));
                 }
+                Action::Settings => self.settings = true,
                 Action::ShowTab(tab) => {
                     self.active = tab;
                     // It may have changed while it was out of sight.
@@ -174,7 +176,7 @@ fn lines<'a>(paths: impl IntoIterator<Item = &'a Path>) -> String {
     paths.into_iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join("\n")
 }
 
-/// The tab bar: a tab per repository, each with a close button, and a new tab.
+/// The tab bar: a tab per repository, each with a close button, a new tab, and the settings.
 fn tabs(ui: &mut Ui, tabs: &[Workspace], active: Option<usize>, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
         for (tab, ws) in tabs.iter().enumerate() {
@@ -195,6 +197,12 @@ fn tabs(ui: &mut Ui, tabs: &[Workspace], active: Option<usize>, actions: &mut Ve
         if new.clicked() {
             actions.push(Action::ShowTab(None));
         }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let hint = format!("Settings  ({})", ui.ctx().format_shortcut(&commands::SETTINGS));
+            if ui.add(Button::new("Settings").frame(false)).on_hover_text(hint).clicked() {
+                actions.push(Action::Settings);
+            }
+        });
     });
 }
 
@@ -246,7 +254,7 @@ fn toolbar(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
         ui.separator();
         // The buttons are off while git is busy, to show it.
         let idle = ws.busy().is_none();
-        for (label, command, menu) in commands::toolbar(ws) {
+        for (label, command, menu) in commands::toolbar(ui.ctx(), ws) {
             let button = ui.add_enabled(idle && command.action.is_some(), Button::new(label));
             let hint = command.hint(ui.ctx());
             let button =

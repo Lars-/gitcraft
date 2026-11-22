@@ -27,7 +27,7 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
         if history.reading.is_none() && history.commits.is_empty() {
             ui.weak("No commit changed this file yet.");
         }
-        let now = theme::now();
+        let dates = theme::Dates::of(ui.ctx());
         ui.spacing_mut().item_spacing.y = 0.0;
         egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, ROW, history.commits.len(), |ui, rows| {
             for row in rows {
@@ -53,9 +53,10 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                     }
                 };
                 let renamed = file.from.as_ref().map(|from| format!("  (from {from})")).unwrap_or_default();
-                put(ui, column(80.0, 256.0), format!("{}{renamed}", commit.summary()));
-                put(ui, column(width - 248.0, 108.0), RichText::new(&commit.author).weak());
-                put(ui, column(width - 100.0, 8.0), RichText::new(theme::when(commit.time, now)).weak());
+                let date = dates.width();
+                put(ui, column(80.0, 156.0 + date), format!("{}{renamed}", commit.summary()));
+                put(ui, column(width - 148.0 - date, date + 8.0), RichText::new(&commit.author).weak());
+                put(ui, column(width - date, 8.0), RichText::new(dates.when(commit.time)).weak());
                 response.widget_info(|| WidgetInfo::selected(Role::Button, true, open, commit.summary()));
                 if response.clicked() {
                     actions.push(Action::Visit(row));

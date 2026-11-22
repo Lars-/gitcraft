@@ -1607,7 +1607,7 @@ fn while_git_is_busy_the_keyboard_queues_what_it_runs_apart_from_undo() {
     harness.state_mut().workspace_mut().unwrap().apply(&ctx, Action::Refresh);
 
     let can = |name: &str| {
-        let commands = commands::all(harness.state());
+        let commands = commands::all(&harness.ctx, harness.state());
         commands.into_iter().find(|command| command.name.starts_with(name)).unwrap().action.is_some()
     };
     assert!(can("Stash") && can("Fetch") && can("New branch"));
@@ -1732,4 +1732,58 @@ fn the_keyboard_goes_through_a_commit_s_files_and_back_to_the_graph() {
         harness.key_press_modifiers(Modifiers::CTRL, Key::Tab);
         settle(&mut harness);
     }
+}
+
+/// How many texts on screen read just `text`.
+fn painted(harness: &Harness<'_, App>, text: &str) -> usize {
+    let shapes = harness.output().shapes.iter();
+    shapes.filter(|clipped| matches!(&clipped.shape, egui::Shape::Text(shape) if shape.galley.job.text == text)).count()
+}
+
+#[test]
+fn the_settings_change_how_dates_read_what_pull_does_and_the_zoom() {
+    let (_dir, git) = repo();
+    let dir = tempfile::tempdir().unwrap();
+    let origin = Git::new(dir.path());
+    origin.run(&["init", "-q", "--bare", "-b", "main"]).unwrap();
+    git.run(&["remote", "add", "origin", origin.dir().to_str().unwrap()]).unwrap();
+    git.apply(&Op::Push { remote: Some("origin".into()), track: true, force: false }).unwrap();
+    // Someone else pushed to origin while a commit was made here.
+    add_files(&git, &["theirs"]);
+    git.apply(&Op::Push { remote: None, track: false, force: false }).unwrap();
+    git.run(&["reset", "-q", "--hard", "HEAD~1"]).unwrap();
+    add_files(&git, &["ours"]);
+    let date = git.run(&["log", "-1", "--format=%ad", "--date=format:%Y-%m-%d %H:%M"]).unwrap();
+    let mut harness = app(Some(git.dir()));
+    assert_eq!((painted(&harness, "just now") > 0, painted(&harness, date.trim())), (true, 0));
+
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Comma);
+    settle(&mut harness);
+    harness.get_by_label("Date and time").click();
+    harness.get_by_label("Rebase").click();
+    settle(&mut harness);
+    for (button, zoom) in [("Zoom in", 1.1), ("Zoom in", 1.2), ("Zoom out", 1.1), ("Reset the zoom", 1.0)] {
+        harness.get_by_label(button).click();
+        settle(&mut harness);
+        assert!((harness.ctx.zoom_factor() - zoom).abs() < 0.01, "{button} gave {}", harness.ctx.zoom_factor());
+    }
+    harness.get_by_label("Close").click();
+    settle(&mut harness);
+    assert!(!harness.state().settings);
+    assert_eq!((painted(&harness, "just now"), painted(&harness, date.trim()) > 0), (0, true));
+
+    // Pull rebases now, and its menu still merges or rebases as asked.
+    harness.get_by_label("Pull  1").click();
+    settle(&mut harness);
+    assert_eq!(log(&git), "Add ours\nAdd theirs\nFirst commit\n");
+
+    // The settings are in the tab bar too; Escape closes them, and only them.
+    harness.get_by_label("Settings").click();
+    settle(&mut harness);
+    harness.get_by_label("Merge").click();
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    assert!(!harness.state().settings);
+    let pull = commands::all(&harness.ctx, harness.state()).into_iter().find(|c| c.name == "Pull").unwrap();
+    assert_eq!(pull.action, Some(Action::Run(Op::Pull { rebase: false })));
 }

@@ -11,7 +11,7 @@ use gitcraft_core::git::Op;
 
 use crate::app::{Action, Confirm, OpenFile, Picture, Versions};
 use crate::commands::{self, Command};
-use crate::{details, theme};
+use crate::{details, settings, theme};
 
 const LINE: f32 = 18.0;
 const NUMBER: f32 = 44.0;
@@ -102,17 +102,12 @@ fn line_text(
     job
 }
 
-/// Where egui keeps whether diffs show the old and the new version side by side: that is how the
-/// view looks, like a folded section, so it stays with the view and lasts between runs.
-const SIDE_BY_SIDE: &str = "side by side";
-
 /// Shows the open file, with a way to close it when it fills the centre `alone`.
 pub fn show(ui: &mut Ui, file: &OpenFile, alone: bool, actions: &mut Vec<Action>) {
     let verbs = verbs(&file.source, true);
     let picked = |h, l| file.lines.contains(&(h, l));
     let lines = theme::count(file.lines.len(), "line");
-    let id = egui::Id::unique(SIDE_BY_SIDE);
-    let mut side_by_side = ui.data_mut(|d| d.get_persisted(id)).unwrap_or(false);
+    let mut side_by_side = settings::SIDE_BY_SIDE.on(ui.ctx());
     ui.horizontal(|ui| {
         ui.strong(file.source.path());
         ui.weak(match file.source {
@@ -127,7 +122,7 @@ pub fn show(ui: &mut Ui, file: &OpenFile, alone: bool, actions: &mut Vec<Action>
             }
             if ui.add(egui::Button::selectable(side_by_side, "Side by side")).clicked() {
                 side_by_side = !side_by_side;
-                ui.data_mut(|d| d.insert_persisted(id, side_by_side));
+                settings::SIDE_BY_SIDE.set(ui.ctx(), side_by_side);
             }
             for verb in verbs {
                 let keys = ui.ctx().format_shortcut(&commands::staging(verb));
