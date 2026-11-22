@@ -10,6 +10,7 @@ mod graph;
 mod history;
 mod merge;
 mod rebase;
+mod settings;
 mod sidebar;
 mod start;
 mod syntax;

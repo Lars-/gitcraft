@@ -6,10 +6,13 @@ use gitcraft_core::git::Op;
 
 use crate::app::{Action, Confirm, Prompt, Selection, Workspace};
 use crate::ui::App;
-use crate::{diff, graph, theme};
+use crate::{diff, graph, settings, theme};
 
 /// Opens the command palette.
 pub const PALETTE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::P);
+
+/// Opens the settings.
+pub const SETTINGS: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Comma);
 
 /// Commits, also while the message is being typed.
 pub const COMMIT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Enter);
@@ -56,9 +59,9 @@ impl Command {
 }
 
 /// The toolbar's buttons, left to right: each with what it shows, its command, and the commands of
-/// its right-click menu. While git is busy, what they run waits its turn, apart from undo and redo,
-/// which depend on where it leaves `HEAD`.
-pub fn toolbar(ws: &Workspace) -> Vec<(String, Command, Vec<Command>)> {
+/// its right-click menu; Pull rebases if the settings say so. While git is busy, what they run
+/// waits its turn, apart from undo and redo, which depend on where it leaves `HEAD`.
+pub fn toolbar(ctx: &egui::Context, ws: &Workspace) -> Vec<(String, Command, Vec<Command>)> {
     let (cmd, shift) = (Modifiers::COMMAND, Modifiers::COMMAND.plus(Modifiers::SHIFT));
     let status = &ws.snapshot.status;
     let idle = ws.busy().is_none();
@@ -94,6 +97,7 @@ pub fn toolbar(ws: &Workspace) -> Vec<(String, Command, Vec<Command>)> {
             Action::Run(Op::Push { remote: track.then(|| remote.to_owned()), track, force: false })
         }
     };
+    let pull = Action::Run(Op::Pull { rebase: settings::REBASE.on(ctx) });
     let pull_menu = [("Pull with merge", false), ("Pull with rebase", true)]
         .map(|(name, rebase)| Command::new(name, None, Some(Action::Run(Op::Pull { rebase }))));
     let mut push_menu = Vec::new();
@@ -110,11 +114,7 @@ pub fn toolbar(ws: &Workspace) -> Vec<(String, Command, Vec<Command>)> {
     }
     tools.extend([
         ("Fetch".to_owned(), Command::new("Fetch", keys(shift, Key::F), Some(Action::Run(Op::Fetch))), Vec::new()),
-        (
-            count("Pull", status.behind),
-            Command::new("Pull", keys(shift, Key::ArrowDown), Some(Action::Run(Op::Pull { rebase: false }))),
-            pull_menu.into(),
-        ),
+        (count("Pull", status.behind), Command::new("Pull", keys(shift, Key::ArrowDown), Some(pull)), pull_menu.into()),
         (
             count("Push", status.ahead),
             Command::new("Push", keys(shift, Key::ArrowUp), status.branch.is_some().then_some(push)),
@@ -148,9 +148,9 @@ pub fn toolbar(ws: &Workspace) -> Vec<(String, Command, Vec<Command>)> {
     tools
 }
 
-/// Every command there is now: of the tabs and the start screen, and of the repository on screen
-/// with its toolbar, the file in view and the selected commit.
-pub fn all(app: &App) -> Vec<Command> {
+/// Every command there is now: of the tabs, the start screen and the settings, and of the
+/// repository on screen with its toolbar, the file in view and the selected commit.
+pub fn all(ctx: &egui::Context, app: &App) -> Vec<Command> {
     let cmd = Modifiers::COMMAND;
     let (ctrl, back) = (Modifiers::CTRL, Modifiers::CTRL.plus(Modifiers::SHIFT));
     // The start screen is the last tab, the one with the +.
@@ -168,9 +168,10 @@ pub fn all(app: &App) -> Vec<Command> {
         Command::new("Previous tab", keys(back, Key::Tab), after(tabs - 1)),
         Command::new("Clone a repository…", None, Some(Action::NewRepo { clone: true })),
         Command::new("Create a repository…", None, Some(Action::NewRepo { clone: false })),
+        Command::new("Settings…", SETTINGS, Some(Action::Settings)),
     ];
     let Some(ws) = app.workspace() else { return commands };
-    for (_, command, menu) in toolbar(ws) {
+    for (_, command, menu) in toolbar(ctx, ws) {
         commands.push(command);
         commands.extend(menu);
     }
