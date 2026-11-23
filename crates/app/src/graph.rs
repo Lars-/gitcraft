@@ -92,7 +92,7 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
             let head = history.head == Some(index);
             let merge = history.graph.parents(index).len() > 1;
             paint_row(&painter.with_clip_rect(graph), row, lane_x, merge, (head, head && wip == 1 && index == 0));
-            let colour = theme::lane(row.lane);
+            let colour = theme::colours(ui.ctx().theme()).lane(row.lane);
             paint_labels(&painter, rect.with_max_x(rect.left() + labels_width), labels, colour, current.as_deref());
             match ws.commits.get(&ws.repo, id) {
                 Ok(commit) => {
@@ -111,7 +111,7 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                     let date = Rect::from_x_y_ranges(rect.right() - date_width..=rect.right() - 8.0, rect.y_range());
                     put(ui, date, egui::RichText::new(dates.when(commit.time)).weak());
                 }
-                Err(error) => put(ui, text, egui::RichText::new(error.to_string()).color(theme::ERROR)),
+                Err(error) => put(ui, text, egui::RichText::new(error.to_string()).color(ui.visuals().error_fg_color)),
             }
             if response.clicked() {
                 actions.push(Action::Select(Selection::Commit(id)));
@@ -220,10 +220,11 @@ fn paint_row(
 ) {
     let rect = painter.clip_rect();
     let (top, mid, bottom) = (rect.top(), rect.center().y, rect.bottom());
+    let colours = theme::colours(painter.ctx().theme());
     for edge in &row.edges {
         let (y0, y1, colour) = match edge.half {
-            Half::Top => (top, mid, theme::lane(edge.from)),
-            Half::Bottom => (mid, bottom, theme::lane(edge.to)),
+            Half::Top => (top, mid, colours.lane(edge.from)),
+            Half::Bottom => (mid, bottom, colours.lane(edge.to)),
         };
         let (a, b) = (Pos2::new(lane_x(edge.from), y0), Pos2::new(lane_x(edge.to), y1));
         let stroke = Stroke::new(2.0, colour);
@@ -235,9 +236,9 @@ fn paint_row(
         }
     }
     let node = Pos2::new(lane_x(row.lane), mid);
-    painter.circle_filled(node, if merge { 4.0 } else { 6.0 }, theme::lane(row.lane));
+    painter.circle_filled(node, if merge { 4.0 } else { 6.0 }, colours.lane(row.lane));
     if head {
-        painter.circle_stroke(node, 9.0, Stroke::new(1.5, Color32::WHITE));
+        painter.circle_stroke(node, 9.0, Stroke::new(1.5, strong(painter)));
     }
     if wip_above {
         dashed(painter, Pos2::new(node.x, top), node - Vec2::Y * 9.0);
@@ -248,22 +249,27 @@ fn paint_row(
 fn paint_labels(painter: &Painter, rect: Rect, labels: &[Ref], colour: Color32, current: Option<&str>) {
     let Some(first) = labels.iter().find(|l| Some(l.name.as_str()) == current).or(labels.first()) else { return };
     let more = if labels.len() > 1 { format!("  +{}", labels.len() - 1) } else { String::new() };
-    let font = FontId::proportional(12.0);
-    let galley = painter.layout_no_wrap(format!("{}{more}", first.name), font, Color32::WHITE);
+    let (font, text) = (FontId::proportional(12.0), strong(painter));
+    let galley = painter.layout_no_wrap(format!("{}{more}", first.name), font, text);
     let size = galley.size() + Vec2::new(14.0, 6.0);
     let pill = Rect::from_min_size(Pos2::new(rect.left() + 6.0, rect.center().y - size.y / 2.0), size);
     let pill = pill.intersect(rect.shrink2(Vec2::new(4.0, 0.0)));
     match first.kind {
         RefKind::Local => painter.rect_filled(pill, 4.0, colour.gamma_multiply(0.55)),
         RefKind::Remote => painter.rect_stroke(pill, 4.0, Stroke::new(1.0, colour), egui::StrokeKind::Inside),
-        RefKind::Tag => painter.rect_filled(pill, 0.0, Color32::from_gray(70)),
+        RefKind::Tag => painter.rect_filled(pill, 0.0, theme::colours(painter.ctx().theme()).tag),
     };
     if Some(first.name.as_str()) == current {
-        painter.rect_stroke(pill, 4.0, Stroke::new(1.5, Color32::WHITE), egui::StrokeKind::Outside);
+        painter.rect_stroke(pill, 4.0, Stroke::new(1.5, text), egui::StrokeKind::Outside);
     }
     let line = Pos2::new(pill.right(), rect.center().y);
     painter.line_segment([line, Pos2::new(rect.right(), line.y)], Stroke::new(1.0, colour.gamma_multiply(0.6)));
-    painter.with_clip_rect(pill).galley(pill.min + Vec2::new(7.0, 3.0), galley, Color32::WHITE);
+    painter.with_clip_rect(pill).galley(pill.min + Vec2::new(7.0, 3.0), galley, text);
+}
+
+/// The colour of what stands out most, as the commit checked out: white on dark, black on light.
+fn strong(painter: &Painter) -> Color32 {
+    painter.ctx().global_style().visuals.strong_text_color()
 }
 
 /// The right-click menu of a commit: what can be done with each branch and tag on it, then with

@@ -13,7 +13,7 @@ use gitcraft_core::diff::Source;
 use gitcraft_core::git::{Git, Op};
 use tempfile::TempDir;
 
-use crate::app::{Action, Selection};
+use crate::app::{Action, Selection, Versions};
 use crate::commands;
 use crate::start::percent;
 use crate::theme;
@@ -345,8 +345,8 @@ fn a_changed_line_marks_the_words_that_changed() {
     settle(&mut harness);
 
     // Only the word that changed stands out; a line rewritten as a whole has nothing to point at.
-    assert_eq!(painted_on(&harness, theme::REMOVED_WORD), ["count"]);
-    assert_eq!(painted_on(&harness, theme::ADDED_WORD), ["amount"]);
+    assert_eq!(painted_on(&harness, theme::DARK.removed_word), ["count"]);
+    assert_eq!(painted_on(&harness, theme::DARK.added_word), ["amount"]);
 }
 
 /// Where the lines on screen that hold `text` are painted, top to bottom.
@@ -397,8 +397,8 @@ fn a_diff_side_by_side_puts_old_and_new_next_to_each_other_to_stage_from() {
     assert!(same(extra.x, new.x) && extra.y > new.y, "a line that pairs with none is on its own side");
     let [left, right] = painted_at(&harness, "  keep")[..] else { panic!("not on both sides") };
     assert!(same(left.y, right.y) && same(left.x, old.x) && same(right.x, new.x));
-    assert_eq!(painted_on(&harness, theme::REMOVED_WORD), ["count"]);
-    assert_eq!(painted_on(&harness, theme::ADDED_WORD), ["amount"]);
+    assert_eq!(painted_on(&harness, theme::DARK.removed_word), ["count"]);
+    assert_eq!(painted_on(&harness, theme::DARK.added_word), ["amount"]);
 
     // Either side's line can be picked.
     click_at(&mut harness, old);
@@ -515,7 +515,7 @@ fn code_in_a_diff_has_the_colours_of_its_language() {
     let [comment] = coloured(&harness, " * three")[..] else { panic!("no line of the comment") };
     let [keyword, again] = coloured(&harness, "fn")[..] else { panic!("no old and new line") };
     assert!(comment != plain && keyword != plain && keyword != comment && again == keyword);
-    assert!(painted_on(&harness, theme::ADDED_WORD).concat().contains("greet"), "the words still stand out");
+    assert!(painted_on(&harness, theme::DARK.added_word).concat().contains("greet"), "the words still stand out");
 
     // A submodule is no code, and its diff shows where it points.
     let head = git.run(&["rev-parse", "HEAD"]).unwrap();
@@ -1786,4 +1786,44 @@ fn the_settings_change_how_dates_read_what_pull_does_and_the_zoom() {
     assert!(!harness.state().settings);
     let pull = commands::all(&harness.ctx, harness.state()).into_iter().find(|c| c.name == "Pull").unwrap();
     assert_eq!(pull.action, Some(Action::Run(Op::Pull { rebase: false })));
+}
+
+#[test]
+fn a_light_theme_colours_diffs_and_code_for_a_light_background() {
+    let (_dir, git) = repo();
+    fs::write(git.dir().join("main.rs"), "fn main() {}\n").unwrap();
+    git.apply(&Op::Stage(vec!["main.rs".into()])).unwrap();
+    git.apply(&Op::Commit { message: "Main".into(), amend: false }).unwrap();
+    fs::write(git.dir().join("main.rs"), "fn main() { greet(); }\n").unwrap();
+    let mut harness = app(Some(git.dir()));
+    harness.get_by_label("Uncommitted changes").click();
+    settle(&mut harness);
+    open_versions(&mut harness, "main.rs");
+    let dark = coloured(&harness, "fn");
+    assert!(painted_on(&harness, theme::DARK.added_word).concat().contains("greet"));
+
+    // In the light theme the diff and its code take the colours for a light background.
+    harness.get_by_label("Settings").click();
+    settle(&mut harness);
+    harness.get_by_label("Light").click();
+    harness.key_press(Key::Escape);
+    let coloured_again = |h: &Harness<'_, App>| {
+        let file = h.state().workspace().unwrap().open_file.as_ref().unwrap();
+        file.reading.is_none() && matches!(file.versions, Versions::Code(egui::Theme::Light, _))
+    };
+    wait_until(&mut harness, "the code in light colours", coloured_again);
+    settle(&mut harness);
+    assert_eq!(harness.ctx.theme(), egui::Theme::Light);
+    let light = coloured(&harness, "fn");
+    assert!(dark.len() == 2 && light.len() == 2 && light[0] != dark[0], "{dark:?} and {light:?}");
+    assert!(painted_on(&harness, theme::LIGHT.added_word).concat().contains("greet"));
+    assert_eq!(painted_on(&harness, theme::DARK.added_word), Vec::<String>::new());
+
+    // Or the one the system uses.
+    harness.get_by_label("Settings").click();
+    settle(&mut harness);
+    harness.get_by_label("System").click();
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    assert_eq!(harness.ctx.options(|o| o.theme_preference), egui::ThemePreference::System);
 }

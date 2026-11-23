@@ -1,69 +1,120 @@
 //! Colours, the look of the app, and how times read.
 
-use eframe::egui::{self, Color32};
+use eframe::egui::{self, Color32, Theme};
 use gitcraft_core::date;
 use gitcraft_core::status::Change;
 
 use crate::settings;
 
-/// One colour per graph lane, repeating.
-const LANES: [Color32; 10] = [
-    Color32::from_rgb(0x38, 0xbd, 0xf8),
-    Color32::from_rgb(0xa7, 0x8b, 0xfa),
-    Color32::from_rgb(0xf4, 0x72, 0xb6),
-    Color32::from_rgb(0xfb, 0xbf, 0x24),
-    Color32::from_rgb(0x34, 0xd3, 0x99),
-    Color32::from_rgb(0xf8, 0x71, 0x71),
-    Color32::from_rgb(0x81, 0x8c, 0xf8),
-    Color32::from_rgb(0xa3, 0xe6, 0x35),
-    Color32::from_rgb(0x22, 0xd3, 0xee),
-    Color32::from_rgb(0xfb, 0x92, 0x3c),
-];
-
-/// The background of an added line.
-pub const ADDED: Color32 = Color32::from_rgb(0x1d, 0x3b, 0x2c);
-/// The background of a removed line.
-pub const REMOVED: Color32 = Color32::from_rgb(0x45, 0x22, 0x27);
-/// The background of the words that changed in an added line.
-pub const ADDED_WORD: Color32 = Color32::from_rgb(0x2c, 0x63, 0x45);
-/// The background of the words that changed in a removed line.
-pub const REMOVED_WORD: Color32 = Color32::from_rgb(0x74, 0x30, 0x39);
-/// The background of a conflict without a pick.
-pub const CONFLICT: Color32 = Color32::from_rgb(0x4a, 0x38, 0x1c);
-/// The background of a line picked for staging.
-pub const PICKED: Color32 = Color32::from_rgb(0x2b, 0x4a, 0x7a);
-/// The colours of code: one of syntect's own themes, made for a dark background.
-pub const CODE: &str = "base16-ocean.dark";
-/// Text for errors.
-pub const ERROR: Color32 = Color32::from_rgb(0xf8, 0x71, 0x71);
-
-/// The colour of a lane.
-pub fn lane(i: usize) -> Color32 {
-    LANES[i % LANES.len()]
+/// The colours the app adds to egui's own, for a dark or a light background.
+#[derive(Debug)]
+pub struct Colours {
+    /// One per graph lane, repeating.
+    lanes: [Color32; 10],
+    /// The background of an added line.
+    pub added: Color32,
+    /// The background of a removed line.
+    pub removed: Color32,
+    /// The background of the words that changed in an added line.
+    pub added_word: Color32,
+    /// The background of the words that changed in a removed line.
+    pub removed_word: Color32,
+    /// The background of a conflict without a pick.
+    pub conflict: Color32,
+    /// The background of a tag in the graph.
+    pub tag: Color32,
+    /// The colours of code: one of syntect's own themes.
+    pub code: &'static str,
 }
 
-/// The letter and colour that mark a kind of change.
-pub fn change(change: Change) -> (&'static str, Color32) {
-    match change {
-        Change::Added => ("A", LANES[4]),
-        Change::Modified => ("M", LANES[3]),
-        Change::Deleted => ("D", LANES[5]),
-        Change::Renamed | Change::Copied => ("R", LANES[0]),
-        Change::TypeChanged => ("T", LANES[1]),
-        Change::Untracked => ("U", LANES[7]),
-        Change::Conflicted { .. } => ("C", LANES[9]),
+/// The colours on a dark background.
+pub const DARK: Colours = Colours {
+    lanes: [
+        Color32::from_rgb(0x38, 0xbd, 0xf8),
+        Color32::from_rgb(0xa7, 0x8b, 0xfa),
+        Color32::from_rgb(0xf4, 0x72, 0xb6),
+        Color32::from_rgb(0xfb, 0xbf, 0x24),
+        Color32::from_rgb(0x34, 0xd3, 0x99),
+        Color32::from_rgb(0xf8, 0x71, 0x71),
+        Color32::from_rgb(0x81, 0x8c, 0xf8),
+        Color32::from_rgb(0xa3, 0xe6, 0x35),
+        Color32::from_rgb(0x22, 0xd3, 0xee),
+        Color32::from_rgb(0xfb, 0x92, 0x3c),
+    ],
+    added: Color32::from_rgb(0x1d, 0x3b, 0x2c),
+    removed: Color32::from_rgb(0x45, 0x22, 0x27),
+    added_word: Color32::from_rgb(0x2c, 0x63, 0x45),
+    removed_word: Color32::from_rgb(0x74, 0x30, 0x39),
+    conflict: Color32::from_rgb(0x4a, 0x38, 0x1c),
+    tag: Color32::from_gray(70),
+    code: "base16-ocean.dark",
+};
+
+/// The colours on a light background: the same, a shade darker for lines and text, and lighter
+/// behind text.
+pub const LIGHT: Colours = Colours {
+    lanes: [
+        Color32::from_rgb(0x02, 0x84, 0xc7),
+        Color32::from_rgb(0x7c, 0x3a, 0xed),
+        Color32::from_rgb(0xdb, 0x27, 0x77),
+        Color32::from_rgb(0xd9, 0x77, 0x06),
+        Color32::from_rgb(0x05, 0x96, 0x69),
+        Color32::from_rgb(0xdc, 0x26, 0x26),
+        Color32::from_rgb(0x4f, 0x46, 0xe5),
+        Color32::from_rgb(0x65, 0xa3, 0x0d),
+        Color32::from_rgb(0x08, 0x91, 0xb2),
+        Color32::from_rgb(0xea, 0x58, 0x0c),
+    ],
+    added: Color32::from_rgb(0xdc, 0xfc, 0xe7),
+    removed: Color32::from_rgb(0xfe, 0xe2, 0xe2),
+    added_word: Color32::from_rgb(0x86, 0xef, 0xac),
+    removed_word: Color32::from_rgb(0xfc, 0xa5, 0xa5),
+    conflict: Color32::from_rgb(0xfe, 0xf3, 0xc7),
+    tag: Color32::from_gray(215),
+    code: "InspiredGitHub",
+};
+
+/// The colours for `theme`.
+pub fn colours(theme: Theme) -> &'static Colours {
+    match theme {
+        Theme::Dark => &DARK,
+        Theme::Light => &LIGHT,
     }
 }
 
-/// Sets up the dark look.
+impl Colours {
+    /// The colour of a lane.
+    pub fn lane(&self, i: usize) -> Color32 {
+        self.lanes[i % self.lanes.len()]
+    }
+
+    /// The letter and colour that mark a kind of change.
+    pub fn change(&self, change: Change) -> (&'static str, Color32) {
+        let (letter, lane) = match change {
+            Change::Added => ("A", 4),
+            Change::Modified => ("M", 3),
+            Change::Deleted => ("D", 5),
+            Change::Renamed | Change::Copied => ("R", 0),
+            Change::TypeChanged => ("T", 1),
+            Change::Untracked => ("U", 7),
+            Change::Conflicted { .. } => ("C", 9),
+        };
+        (letter, self.lanes[lane])
+    }
+}
+
+/// Sets up the look, dark and light. Which one shows is egui's theme preference, which eframe saves
+/// between runs: dark, light, or the one the system uses.
 pub fn apply(ctx: &egui::Context) {
-    ctx.set_theme(egui::Theme::Dark);
-    ctx.all_styles_mut(|style| {
-        style.visuals.panel_fill = Color32::from_rgb(0x1f, 0x22, 0x28);
-        style.visuals.extreme_bg_color = Color32::from_rgb(0x17, 0x19, 0x1e);
-        style.visuals.selection.bg_fill = Color32::from_rgb(0x2b, 0x4a, 0x7a);
-        style.spacing.button_padding = egui::vec2(8.0, 3.0);
+    ctx.all_styles_mut(|style| style.spacing.button_padding = egui::vec2(8.0, 3.0));
+    ctx.style_mut_of(Theme::Dark, |style| {
+        let visuals = &mut style.visuals;
+        visuals.panel_fill = Color32::from_rgb(0x1f, 0x22, 0x28);
+        visuals.extreme_bg_color = Color32::from_rgb(0x17, 0x19, 0x1e);
+        visuals.selection.bg_fill = Color32::from_rgb(0x2b, 0x4a, 0x7a);
+        visuals.error_fg_color = Color32::from_rgb(0xf8, 0x71, 0x71);
     });
+    ctx.style_mut_of(Theme::Light, |style| style.visuals.error_fg_color = Color32::from_rgb(0xdc, 0x26, 0x26));
 }
 
 /// How the dates of commits read: how long ago, or the date and the time.
@@ -150,7 +201,8 @@ mod tests {
 
     #[test]
     fn lanes_repeat_their_colours() {
-        assert_eq!(lane(1), lane(11));
-        assert_ne!(lane(1), lane(2));
+        assert_eq!(DARK.lane(1), DARK.lane(11));
+        assert_ne!(DARK.lane(1), DARK.lane(2));
+        assert_ne!(DARK.lane(1), LIGHT.lane(1));
     }
 }

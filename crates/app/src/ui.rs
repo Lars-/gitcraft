@@ -225,7 +225,7 @@ fn workspace(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                 if ui.small_button("Dismiss").clicked() {
                     ws.error = None;
                 }
-                ui.colored_label(theme::ERROR, error);
+                ui.colored_label(ui.visuals().error_fg_color, error);
             });
         });
     }
@@ -290,7 +290,7 @@ fn underway(ui: &mut Ui, ws: &Workspace, actions: &mut Vec<Action>) {
         ui.strong(format!("{} in progress", theme::capital(command)));
         ui.weak(&underway.message);
         if conflicts > 0 {
-            ui.colored_label(theme::ERROR, theme::count(conflicts, "conflicted file"));
+            ui.colored_label(ui.visuals().error_fg_color, theme::count(conflicts, "conflicted file"));
         }
         let go_on = ui.add_enabled(idle && conflicts == 0, Button::new("Continue"));
         if go_on.on_disabled_hover_text("Resolve every conflict first").clicked() {
@@ -376,7 +376,7 @@ fn confirm(ctx: &egui::Context, ws: &mut Workspace, actions: &mut Vec<Action>) {
         ui.strong(&confirm.question);
         ui.label("This cannot be undone.");
         ui.horizontal(|ui| {
-            if ui.button(egui::RichText::new(confirm.verb).color(theme::ERROR)).clicked() {
+            if ui.button(egui::RichText::new(confirm.verb).color(ui.visuals().error_fg_color)).clicked() {
                 actions.push(Action::Run(confirm.op.clone()));
                 done = true;
             }

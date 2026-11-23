@@ -24,7 +24,7 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
 /// One changed file: its kind of change, its path, and `buttons` on the right, right to left.
 /// Returns the path.
 fn file(ui: &mut Ui, change: Change, path: &str, open: bool, buttons: impl FnOnce(&mut Ui)) -> Response {
-    let (letter, colour) = theme::change(change);
+    let (letter, colour) = theme::colours(ui.ctx().theme()).change(change);
     ui.horizontal(|ui| {
         ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
             buttons(ui);
@@ -193,7 +193,7 @@ fn commit(ui: &mut Ui, ws: &mut Workspace, id: ObjectId, actions: &mut Vec<Actio
     let commit = match ws.commits.get(&ws.repo, id) {
         Ok(commit) => commit.clone(),
         Err(error) => {
-            ui.colored_label(theme::ERROR, error.to_string());
+            ui.colored_label(ui.visuals().error_fg_color, error.to_string());
             return;
         }
     };

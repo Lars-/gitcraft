@@ -257,13 +257,18 @@ fn line(
     let line = &hunk.lines[l];
     let numbers = [line.old, line.new];
     let numbers = side.map_or(&numbers[..], |side| &numbers[side..=side]);
+    let palette = theme::colours(ui.ctx().theme());
     let (background, word, marker) = match line.kind {
-        LineKind::Added => (theme::ADDED, theme::ADDED_WORD, "+ "),
-        LineKind::Removed => (theme::REMOVED, theme::REMOVED_WORD, "- "),
+        LineKind::Added => (palette.added, palette.added_word, "+ "),
+        LineKind::Removed => (palette.removed, palette.removed_word, "- "),
         LineKind::Context | LineKind::NoNewline => (Color32::TRANSPARENT, Color32::TRANSPARENT, "  "),
     };
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 0.0, if file.lines.contains(&(h, l)) { theme::PICKED } else { background });
+    painter.rect_filled(
+        rect,
+        0.0,
+        if file.lines.contains(&(h, l)) { ui.visuals().selection.bg_fill } else { background },
+    );
     let at = |x: f32| rect.left_center() + Vec2::X * x;
     let mut x = 0.0;
     for n in numbers {
@@ -280,7 +285,7 @@ fn line(
     let text = line.text.trim_end_matches('\r');
     // The line's colours, as long as the version read has the same line there.
     let colours = match &file.versions {
-        Versions::Code(code) => [line.old, line.new][version]
+        Versions::Code(_, code) => [line.old, line.new][version]
             .and_then(|n| code[version].get((n as usize).checked_sub(1)?))
             .filter(|coloured| coloured.text == text)
             .map(|coloured| &coloured.colours[..]),

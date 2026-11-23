@@ -7,7 +7,7 @@ use eframe::egui::gui_zoom::{
     self,
     kb_shortcuts::{ZOOM_IN, ZOOM_OUT, ZOOM_RESET},
 };
-use eframe::egui::{self, Button, Id, KeyboardShortcut, Ui};
+use eframe::egui::{self, Button, Id, KeyboardShortcut, ThemePreference, Ui};
 
 /// A setting that is on or off.
 #[derive(Debug, Clone, Copy)]
@@ -33,15 +33,9 @@ impl Switch {
 
     /// A choice between what it does off and on.
     fn choice(self, ui: &mut Ui, what: &str, [off, on]: [&str; 2]) {
-        ui.horizontal(|ui| {
-            label(ui, what);
-            let mut value = self.on(ui.ctx());
-            let changed =
-                ui.radio_value(&mut value, false, off).changed() | ui.radio_value(&mut value, true, on).changed();
-            if changed {
-                self.set(ui.ctx(), value);
-            }
-        });
+        if let Some(value) = choice(ui, what, self.on(ui.ctx()), &[(false, off), (true, on)]) {
+            self.set(ui.ctx(), value);
+        }
     }
 }
 
@@ -57,11 +51,30 @@ pub fn show(ctx: &egui::Context) -> bool {
             zoom(ui, "+", "Zoom in", ZOOM_IN, gui_zoom::zoom_in);
             zoom(ui, "Reset", "Reset the zoom", ZOOM_RESET, |ctx| ctx.set_zoom_factor(1.0));
         });
+        let themes =
+            [(ThemePreference::Dark, "Dark"), (ThemePreference::Light, "Light"), (ThemePreference::System, "System")];
+        if let Some(theme) = choice(ui, "Theme", ctx.options(|o| o.theme_preference), &themes) {
+            ctx.set_theme(theme);
+        }
         FULL_DATES.choice(ui, "Dates", ["How long ago", "Date and time"]);
         REBASE.choice(ui, "Pull", ["Merge", "Rebase"]);
         close = ui.button("Close").clicked();
     });
     !(close || response.should_close())
+}
+
+/// A row to pick one of `picks` for what it is about, with `value` picked; the new pick, once the
+/// user makes one.
+fn choice<T: PartialEq + Copy>(ui: &mut Ui, what: &str, mut value: T, picks: &[(T, &str)]) -> Option<T> {
+    ui.horizontal(|ui| {
+        label(ui, what);
+        let mut changed = false;
+        for &(pick, name) in picks {
+            changed |= ui.radio_value(&mut value, pick, name).changed();
+        }
+        changed.then_some(value)
+    })
+    .inner
 }
 
 /// What a row of the settings is about, in a column of its own.

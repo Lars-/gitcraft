@@ -106,9 +106,10 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
   Escape goes back to the graph. While you type in a field, the field keeps its keys, apart from
   Ctrl+Enter.
 - **Settings**: Settings, at the right of the tabs, or Ctrl+, (Cmd+, on a Mac). Zoom everything
-  larger or smaller (Ctrl+Plus, Ctrl+Minus and Ctrl+0 do that anywhere), show dates as how long
-  ago or as the date and the time, and have Pull rebase rather than merge. They hold for every
-  repository and stay for the next run.
+  larger or smaller (Ctrl+Plus, Ctrl+Minus and Ctrl+0 do that anywhere), pick the dark or the
+  light theme or the one your system uses, show dates as how long ago or as the date and the time,
+  and have Pull rebase rather than merge. They hold for every repository and stay for the next
+  run.
 - **Safe by default**: a hard reset, deleting a branch with commits no other branch or tag has, a
   force push, dropping a stash and removing a remote all ask first, saying what will be lost.
 

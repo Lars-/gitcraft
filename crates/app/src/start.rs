@@ -7,7 +7,6 @@ use eframe::egui::{self, Button, Key, ProgressBar, RichText, TextEdit, Ui};
 use gitcraft_core::git::{self, Git};
 
 use crate::app::Action;
-use crate::theme;
 use crate::ui::pick_folder;
 
 /// The width of the dialog's fields.
@@ -67,7 +66,7 @@ impl Start {
                     }
                 }
                 if let Some(error) = &self.error {
-                    ui.colored_label(theme::ERROR, error);
+                    ui.colored_label(ui.visuals().error_fg_color, error);
                 }
                 if !recent.is_empty() {
                     ui.add_space(24.0);
@@ -210,7 +209,7 @@ impl Dialog {
                 (None, None) => {}
             }
             if let Some(error) = &self.error {
-                ui.colored_label(theme::ERROR, error);
+                ui.colored_label(ui.visuals().error_fg_color, error);
             }
             let idle = !self.busy();
             let enter = ui.input(|i| i.key_pressed(Key::Enter));
