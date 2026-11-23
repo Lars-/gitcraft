@@ -217,8 +217,8 @@ pub enum Versions {
     None,
     /// A picture's.
     Pictures([Version; 2]),
-    /// The lines of code, with their colours; none in a language without colours.
-    Code([Vec<syntax::Line>; 2]),
+    /// The lines of code, with their colours in a theme; none in a language without colours.
+    Code(egui::Theme, [Vec<syntax::Line>; 2]),
 }
 
 /// A version of a picture, or why it does not show; `None` when the version does not have the file.
@@ -258,15 +258,14 @@ impl OpenFile {
         if binary && !format.is_ok_and(|format| format.reading_enabled()) || !binary && link {
             return;
         }
-        let (repo, source, context) = (repo.clone(), self.source.clone(), ctx.clone());
+        let (repo, source, context, theme) = (repo.clone(), self.source.clone(), ctx.clone(), ctx.theme());
         self.reading = Some(read_in_background(ctx, move || {
             let (versions, path) = (repo.versions(&source)?, source.path());
             Ok(if binary {
                 Versions::Pictures(versions.map(|version| version.map(|bytes| picture(&context, path, &bytes))))
             } else {
-                Versions::Code(
-                    versions.map(|version| version.map_or_else(Vec::new, |code| syntax::colour(path, &code))),
-                )
+                let colour = |code: Vec<u8>| syntax::colour(path, &code, theme);
+                Versions::Code(theme, versions.map(|version| version.map_or_else(Vec::new, colour)))
             })
         }));
     }
@@ -979,6 +978,13 @@ impl Workspace {
     /// Takes in the result of the background job, once it is there, and starts the next.
     pub fn poll(&mut self, ctx: &egui::Context) {
         self.take_reading(ctx);
+        // Code is coloured for one theme: in another, it is coloured again.
+        if let Some(file) = &mut self.open_file
+            && file.reading.is_none()
+            && matches!(file.versions, Versions::Code(theme, _) if theme != ctx.theme())
+        {
+            file.read_versions(ctx, &self.repo);
+        }
         let Some(job) = &self.job else { return };
         let (failed, snapshot, watch) = match job.outcome.try_recv() {
             Err(TryRecvError::Empty) => return,

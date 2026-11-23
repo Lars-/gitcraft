@@ -91,7 +91,7 @@ Its tests run against real repositories made with `git` in a temporary folder
 - `start.rs` (open, clone and create), `ui.rs` (tabs and toolbar), `graph.rs`, `sidebar.rs`, `details.rs`,
   `diff.rs`, `history.rs` (a file's history), `blame.rs` (who last changed each line),
   `merge.rs` (a conflicted file) and `rebase.rs` (an interactive rebase) draw the views, and
-  `theme.rs` has the colours and how dates read. `settings.rs` has the settings, which egui keeps
+  `theme.rs` has the colours, for a dark and for a light background, and how dates read. `settings.rs` has the settings, which egui keeps
   in its memory and eframe saves between runs, and the window to change them in. `syntax.rs` colours code with the grammar of its language, from
   the top of the file, so a diff reads both versions of the file in the background to colour it.
 

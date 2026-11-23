@@ -48,7 +48,7 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                 let commit = match commits.get(repo, *id) {
                     Ok(commit) => commit,
                     Err(error) => {
-                        put(ui, column(80.0, 8.0), RichText::new(error.to_string()).color(theme::ERROR));
+                        put(ui, column(80.0, 8.0), RichText::new(error.to_string()).color(ui.visuals().error_fg_color));
                         continue;
                     }
                 };

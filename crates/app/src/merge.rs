@@ -132,8 +132,9 @@ pub fn show(ui: &mut Ui, merge: &mut Merge, actions: &mut Vec<Action>) {
         columns[1].strong(format!("Theirs: {theirs}"));
     });
     let to = std::mem::take(&mut merge.scroll).then_some(at);
-    let visuals = ui.visuals();
+    let (visuals, colours) = (ui.visuals(), theme::colours(ui.ctx().theme()));
     let (text, current, other) = (visuals.text_color(), visuals.selection.bg_fill, visuals.extreme_bg_color);
+    let error = visuals.error_fg_color;
     ui.spacing_mut().item_spacing.y = 0.0;
     let half = (ui.available_height() - 2.0 * LINE) / 2.0;
     list(ui, "sides", &rows(merge, false), half, to, |ui, rect, response, row| {
@@ -157,9 +158,9 @@ pub fn show(ui: &mut Ui, merge: &mut Merge, actions: &mut Vec<Action>) {
             Row::Lines(n, lines) => {
                 for (side, (cell, line)) in cells.into_iter().zip(lines).enumerate() {
                     let background = match merge.picks[n] {
-                        None => theme::CONFLICT,
-                        Some(pick) if pick.sides().contains(&side) => theme::ADDED,
-                        Some(_) => theme::REMOVED,
+                        None => colours.conflict,
+                        Some(pick) if pick.sides().contains(&side) => colours.added,
+                        Some(_) => colours.removed,
                     };
                     if let Some(line) = line {
                         paint(ui, cell, line, text, background);
@@ -173,9 +174,9 @@ pub fn show(ui: &mut Ui, merge: &mut Merge, actions: &mut Vec<Action>) {
     ui.add_space(4.0);
     list(ui, "result", &rows(merge, true), f32::INFINITY, to, |ui, rect, response, row| match row {
         Row::Same(line) => paint(ui, rect, line, text, Color32::TRANSPARENT),
-        Row::Lines(_, [line, _]) => paint(ui, rect, line.unwrap_or_default(), text, theme::ADDED),
+        Row::Lines(_, [line, _]) => paint(ui, rect, line.unwrap_or_default(), text, colours.added),
         Row::Conflict(n) => {
-            paint(ui, rect, &format!("Conflict {}: pick a side", n + 1), theme::ERROR, theme::CONFLICT);
+            paint(ui, rect, &format!("Conflict {}: pick a side", n + 1), error, colours.conflict);
             if response.clicked() {
                 actions.push(Action::GoTo(n));
             }

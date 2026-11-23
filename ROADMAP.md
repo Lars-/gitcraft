@@ -58,13 +58,14 @@ drive it the way a user does, and keeps every benchmark as fast as before.
       create in the palette
 - [x] Settings, part 1: a settings window (also Ctrl+,) to zoom, to pick how dates read, and
       whether Pull merges or rebases; they last between runs
+- [x] Settings, part 2: a light theme beside the dark one, or the one the system uses; the
+      graph, diffs, code and conflicts take colours made for it
 
 ## Next
 
-1. **Settings, part 2**: a light theme beside the dark one, or the one the system uses.
-2. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
+1. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
    over the network).
-3. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
+2. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
    (AppImage, .deb, Flatpak), signed where the platform expects it.
 
 ## After 1.0
