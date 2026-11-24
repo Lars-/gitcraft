@@ -1827,3 +1827,67 @@ fn a_light_theme_colours_diffs_and_code_for_a_light_background() {
     settle(&mut harness);
     assert_eq!(harness.ctx.options(|o| o.theme_preference), egui::ThemePreference::System);
 }
+
+/// Double-clicks with the mouse at `at`, both clicks in one frame.
+fn double_click_at(harness: &mut Harness<'_, App>, at: egui::Pos2) {
+    harness.hover_at(at);
+    harness.step();
+    for pressed in [true, false, true, false] {
+        let (button, modifiers) = (egui::PointerButton::Primary, Modifiers::NONE);
+        harness.input_mut().events.push(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+    }
+    harness.step();
+    settle(harness);
+}
+
+#[test]
+fn drag_the_borders_between_the_names_of_the_columns_to_make_them_wider_or_narrower() {
+    let (_dir, git) = repo();
+    commit(&git, "Second commit");
+    let mut harness = app(Some(git.dir()));
+    harness.set_size(egui::vec2(1800.0, 720.0));
+    settle(&mut harness);
+    let row = harness.get_by_role_and_label(Role::Button, "First commit").rect();
+    // Where the message and the author of the first commit start in its row.
+    let starts = |harness: &Harness<'_, App>| {
+        let start =
+            |text| painted_at(harness, text).into_iter().find(|at| row.contains(*at)).map(|at| at.x - row.left());
+        (start("First commit").unwrap(), start("Tess Ter"))
+    };
+    let border = |harness: &Harness<'_, App>, column: &str| {
+        harness.get_by_label(&format!("{column} column width")).rect().center()
+    };
+    let drag_by = |harness: &mut Harness<'_, App>, column: &str, x: f32| {
+        let from = border(harness, column);
+        drag(harness, from, from + egui::vec2(x, 0.0));
+    };
+    let (message, author) = starts(&harness);
+    let author = author.expect("room for the author");
+    assert_eq!(["Branches and tags", "Graph", "Message", "Author", "Date"].map(|name| painted(&harness, name)), [1; 5]);
+
+    // The border on the right of the branches and the graph, and on the left of the author.
+    drag_by(&mut harness, "Graph", 60.0);
+    let (moved, same_author) = starts(&harness);
+    assert!(same(moved, message + 60.0) && same(same_author.unwrap(), author), "{moved} and {same_author:?}");
+    drag_by(&mut harness, "Branches and tags", -50.0);
+    assert!(same(starts(&harness).0, message + 10.0));
+    drag_by(&mut harness, "Author", -30.0);
+    let (unmoved, wider) = starts(&harness);
+    assert!(same(unmoved, message + 10.0) && same(wider.unwrap(), author - 30.0), "{unmoved} and {wider:?}");
+
+    // A double click gives a column the width it starts with.
+    let graph = border(&harness, "Graph");
+    double_click_at(&mut harness, graph);
+    assert!(same(starts(&harness).0, message - 50.0), "{:?}", starts(&harness));
+
+    // The branches and the graph get a third of the width at most, and the author goes before the
+    // message gets too narrow.
+    drag_by(&mut harness, "Branches and tags", 2_000.0);
+    let lanes = message - 8.0 - 170.0;
+    assert!(same(starts(&harness).0, row.width() / 3.0 + lanes + 8.0), "{:?} in {}", starts(&harness), row.width());
+    harness.set_size(egui::vec2(1280.0, 720.0));
+    settle(&mut harness);
+    assert_eq!(starts(&harness).1, None);
+    assert!(harness.query_by_label("Author column width").is_none());
+    assert_eq!(painted(&harness, "Author"), 0);
+}

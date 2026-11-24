@@ -1,10 +1,11 @@
 //! The commit graph: one row per commit, with its branches, lanes and message, and a search
-//! above it. A commit dragged onto another moves to its place, in an interactive rebase.
+//! above it. A commit dragged onto another moves to its place, in an interactive rebase. The
+//! borders between the names of the columns make them wider or narrower.
 
 use eframe::egui::epaint::CubicBezierShape;
 use eframe::egui::{
-    self, Button, Color32, FontId, Key, KeyboardShortcut, Modifiers, Painter, Pos2, Rect, Response, RichText, Role,
-    Sense, Shape, Stroke, TextEdit, Ui, Vec2, WidgetInfo,
+    self, Button, Color32, CursorIcon, FontId, Id, Key, KeyboardShortcut, Modifiers, Painter, Pos2, Rect, Response,
+    RichText, Role, Sense, Shape, Stroke, TextEdit, Ui, Vec2, WidgetInfo,
 };
 use gitcraft_core::ObjectId;
 use gitcraft_core::git::{Op, ResetMode};
@@ -19,6 +20,8 @@ pub const ROW: f32 = 28.0;
 const LANE: f32 = 16.0;
 const LABELS: f32 = 170.0;
 const AUTHOR: f32 = 140.0;
+/// The height of the names of the columns.
+const HEADER: f32 = 20.0;
 
 /// A count as a distance in points.
 pub fn points(n: usize) -> f32 {
@@ -31,6 +34,7 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
     let wip = usize::from(!ws.snapshot.status.is_clean());
     let total = ws.snapshot.history.ids.len() + wip;
     arrow_keys(ui, ws, actions);
+    let columns = header(ui, ws.snapshot.history.graph.width());
     let mut area = egui::ScrollArea::vertical().auto_shrink(false);
     if let Some(row) = ws.scroll_to.take()
         && !ws.visible.contains(&row)
@@ -46,12 +50,7 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
         let screen = ui.clip_rect();
         ws.visible = range.end..range.end;
         let history = &ws.snapshot.history;
-        // The graph gets at most a third of the width; the message never less than a third.
-        let width = ui.available_width();
-        let lanes = (LANE * points(history.graph.width().max(1) + 1)).min(width / 3.0);
-        let labels_width = LABELS.min(width / 5.0);
-        let date_width = dates.width();
-        let author_width = if width - labels_width - lanes > 3.0 * (AUTHOR + date_width) { AUTHOR } else { 0.0 };
+        let Columns { labels: labels_width, lanes, author: author_width, date: date_width, .. } = columns;
         let first = range.start.saturating_sub(wip);
         let rows = history.graph.rows(first..range.end.saturating_sub(wip));
         let head_lane = history.head.and_then(|head| history.graph.rows(head..head + 1).pop()).map_or(0, |r| r.lane);
@@ -125,6 +124,97 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
             response.context_menu(|ui| commit_menu(ui, id, labels, current.as_deref(), actions));
         }
     });
+}
+
+/// The widths of the columns of the graph: the branches and tags, the lanes, the author (none when
+/// there is no room for it) and the date. The message has the rest.
+#[derive(Debug, Clone, Copy)]
+struct Columns {
+    width: f32,
+    labels: f32,
+    lanes: f32,
+    author: f32,
+    date: f32,
+}
+
+impl Columns {
+    /// As wide as the user made them, or else as they start: the branches at most a fifth of the
+    /// width, the graph as wide as its `lanes`. Neither gets more than a third, and the author goes
+    /// before the message gets narrower than it may.
+    fn new(ui: &Ui, lanes: usize) -> Self {
+        let width = ui.available_width();
+        let [labels, graph, author] = RESIZABLE.map(|(name, _)| ui.data_mut(|d| d.get_persisted(width_of(name))));
+        let labels = labels.unwrap_or(LABELS.min(width / 5.0)).min(width / 3.0);
+        let lanes = graph.unwrap_or(LANE * points(lanes.max(1) + 1)).min(width / 3.0);
+        let date = theme::Dates::of(ui.ctx()).width();
+        let author = author.unwrap_or(AUTHOR);
+        let author = if width - labels - lanes - author - date >= narrowest_message(date) { author } else { 0.0 };
+        Self { width, labels, lanes, author, date }
+    }
+}
+
+/// The narrowest the message gets beside the author: twice the room the author and the `date`
+/// start with.
+fn narrowest_message(date: f32) -> f32 {
+    2.0 * (AUTHOR + date)
+}
+
+/// The columns that can be made wider or narrower, with the narrowest they get. egui keeps their
+/// widths in its memory, which eframe saves between runs.
+const RESIZABLE: [(&str, f32); 3] = [("Branches and tags", 24.0), ("Graph", LANE), ("Author", 40.0)];
+
+/// Where egui keeps the width of the column `name`.
+fn width_of(name: &str) -> Id {
+    Id::unique(("column width", name))
+}
+
+/// The names of the columns, with a border to drag between them to make the one on the left wider
+/// or narrower (or the author, on its right); a double click on a border gives the column back the
+/// width it starts with. The columns, as wide as they are now.
+fn header(ui: &mut Ui, lanes: usize) -> Columns {
+    let c = Columns::new(ui, lanes);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(c.width, HEADER), Sense::hover());
+    let (graph, message, date) = (c.labels + c.lanes, c.width - c.author - c.date, c.width - c.date);
+    let names = [(0.0, c.labels), (c.labels, graph), (graph, message), (message, date), (date, c.width)];
+    for (name, (left, right)) in ["Branches and tags", "Graph", "Message", "Author", "Date"].into_iter().zip(names) {
+        if right - left > 16.0 {
+            let column = Rect::from_x_y_ranges(rect.left() + left + 8.0..=rect.left() + right - 8.0, rect.y_range());
+            put(ui, column, RichText::new(name).small().weak());
+        }
+    }
+    let third = c.width / 3.0;
+    // Each with its side that stays put, the way it grows from there, its width and the widest it gets.
+    let borders = [
+        (0.0, 1.0, c.labels, third),
+        (c.labels, 1.0, c.lanes, third),
+        (date, -1.0, c.author, date - graph - narrowest_message(c.date)),
+    ];
+    for ((name, narrowest), (from, grows, width, widest)) in RESIZABLE.into_iter().zip(borders) {
+        if width <= 0.0 {
+            continue;
+        }
+        let x = rect.left() + from + grows * width;
+        let area = Rect::from_center_size(Pos2::new(x, rect.center().y), Vec2::new(8.0, HEADER));
+        let border = ui.interact(area, Id::unique(("border", name)), Sense::click_and_drag());
+        border.widget_info(|| WidgetInfo::labeled(Role::Splitter, true, format!("{name} column width")));
+        let border = border.on_hover_cursor(CursorIcon::ResizeHorizontal);
+        let visuals = &ui.visuals().widgets;
+        let stroke = if border.hovered() || border.dragged() {
+            visuals.active.fg_stroke
+        } else {
+            visuals.noninteractive.bg_stroke
+        };
+        ui.painter().vline(x, rect.y_range(), stroke);
+        if border.double_clicked() {
+            ui.data_mut(|d| d.remove::<f32>(width_of(name)));
+        } else if border.dragged()
+            && let Some(pointer) = border.interact_pointer_pos()
+        {
+            let width = grows * (pointer.x - rect.left() - from);
+            ui.data_mut(|d| d.insert_persisted(width_of(name), width.min(widest).max(narrowest)));
+        }
+    }
+    Columns::new(ui, lanes)
 }
 
 /// The up and down arrows move the selection, unless a text field has the keyboard.
