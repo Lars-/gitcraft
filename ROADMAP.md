@@ -60,11 +60,14 @@ drive it the way a user does, and keeps every benchmark as fast as before.
       whether Pull merges or rebases; they last between runs
 - [x] Settings, part 2: a light theme beside the dark one, or the one the system uses; the
       graph, diffs, code and conflicts take colours made for it
+- [x] Graph polish, part 1: names over the columns of the graph, with borders to drag to make the
+      branches and tags, the graph and the author wider or narrower (a double click puts one back);
+      they last between runs
 
 ## Next
 
-1. **Graph polish**: resizable columns, compact lanes, author avatars (optional, never by default
-   over the network).
+1. **Graph polish**, the rest: compact lanes, author avatars (optional, never by default over the
+   network).
 2. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
    (AppImage, .deb, Flatpak), signed where the platform expects it.
 

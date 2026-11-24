@@ -45,6 +45,9 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
   ignores do not wake it.
 - **Graph**: every branch, remote branch and tag in one graph, children above parents, with
   coloured lanes, branch and tag labels and the uncommitted changes on top. Arrow keys walk it.
+  Drag the borders between the names of the columns to make the branches and tags, the graph or
+  the author wider or narrower, and double-click one to put it back; the widths stay for the next
+  run.
 - **Search**: press Ctrl+F (Cmd+F on a Mac) and type part of a message, an author's name or email
   address, the start of a SHA, or a branch or tag name. The graph goes to the first match and
   dims the rest; Enter goes to the next match and Shift+Enter back. A branch or tag with exactly
