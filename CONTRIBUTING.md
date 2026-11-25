@@ -51,8 +51,9 @@ There are two crates.
   millions of lookups, and what is under way: a merge, rebase, cherry-pick or revert that stopped.
   It also searches the history, a range of rows at a time, so the app can search a little each
   frame, and reads the old and the new version of a file a diff is about, to show a picture.
-- `graph.rs` orders commits (`git log --date-order`) and lays out the lanes. It keeps a snapshot of
-  the lanes every 256 rows, so it only ever builds the rows on screen.
+- `graph.rs` orders commits (`git log --date-order`) and lays out the lanes: lines that head for
+  the same commit share one, and the lanes close up when a line ends. It keeps a snapshot of the
+  lanes every 256 rows, so it only ever builds the rows on screen.
 - `git.rs` runs the user's own `git` for everything else. Every change to a repository is one
   variant of `Op`, which maps to the arguments for `git` (saving a resolved file writes it
   first); cloning and creating a repository are the two functions next to it. Using `git` itself keeps hooks, credentials, signing and config

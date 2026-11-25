@@ -63,11 +63,12 @@ drive it the way a user does, and keeps every benchmark as fast as before.
 - [x] Graph polish, part 1: names over the columns of the graph, with borders to drag to make the
       branches and tags, the graph and the author wider or narrower (a double click puts one back);
       they last between runs
+- [x] Graph polish, part 2: compact lanes: lines that head for the same commit share a lane, and
+      the lanes close up when a line ends, each line keeping its colour
 
 ## Next
 
-1. **Graph polish**, the rest: compact lanes, author avatars (optional, never by default over the
-   network).
+1. **Graph polish**, the rest: author avatars (optional, never by default over the network).
 2. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
    (AppImage, .deb, Flatpak), signed where the platform expects it.
 

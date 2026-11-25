@@ -621,6 +621,34 @@ fn the_graph_scrolls_to_a_commit_just_below_its_edge() {
 }
 
 #[test]
+fn branches_from_the_same_commit_share_its_lane_in_colours_of_their_own() {
+    let (_dir, git) = repo();
+    for branch in ["one", "two", "three"] {
+        git.run(&["checkout", "-q", "-b", branch, "main"]).unwrap();
+        commit(&git, &format!("Work on {branch}"));
+    }
+    let harness = app(Some(git.dir()));
+    let row = |harness: &Harness<'_, App>, message: &str| harness.get_by_role_and_label(Role::Button, message).rect();
+
+    // Two lanes, not three: the lines of the later branches join the first on their way down.
+    let first = row(&harness, "First commit");
+    let message = painted_at(&harness, "First commit").into_iter().find(|at| first.contains(*at)).unwrap();
+    let labels = (first.width() / 5.0).min(170.0);
+    assert!(same(message.x - first.left(), labels + 16.0 * 3.0 + 8.0), "{message:?} in {first:?}");
+    let nodes: Vec<_> = ["one", "two", "three"]
+        .map(|branch| {
+            let tip = row(&harness, &format!("Work on {branch}"));
+            harness.output().shapes.iter().find_map(|clipped| match &clipped.shape {
+                egui::Shape::Circle(node) if tip.contains(node.center) && same(node.radius, 6.0) => Some(node.fill),
+                _ => None,
+            })
+        })
+        .into_iter()
+        .collect();
+    assert!(nodes[0] != nodes[1] && nodes[1] != nodes[2] && nodes[0] != nodes[2], "{nodes:?}");
+}
+
+#[test]
 fn arrow_keys_walk_the_history() {
     let (_dir, git) = repo();
     commit(&git, "Second commit");

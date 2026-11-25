@@ -91,7 +91,7 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
             let head = history.head == Some(index);
             let merge = history.graph.parents(index).len() > 1;
             paint_row(&painter.with_clip_rect(graph), row, lane_x, merge, (head, head && wip == 1 && index == 0));
-            let colour = theme::colours(ui.ctx().theme()).lane(row.lane);
+            let colour = theme::colours(ui.ctx().theme()).lane(row.colour);
             paint_labels(&painter, rect.with_max_x(rect.left() + labels_width), labels, colour, current.as_deref());
             match ws.commits.get(&ws.repo, id) {
                 Ok(commit) => {
@@ -312,12 +312,9 @@ fn paint_row(
     let (top, mid, bottom) = (rect.top(), rect.center().y, rect.bottom());
     let colours = theme::colours(painter.ctx().theme());
     for edge in &row.edges {
-        let (y0, y1, colour) = match edge.half {
-            Half::Top => (top, mid, colours.lane(edge.from)),
-            Half::Bottom => (mid, bottom, colours.lane(edge.to)),
-        };
+        let (y0, y1) = if edge.half == Half::Top { (top, mid) } else { (mid, bottom) };
         let (a, b) = (Pos2::new(lane_x(edge.from), y0), Pos2::new(lane_x(edge.to), y1));
-        let stroke = Stroke::new(2.0, colour);
+        let stroke = Stroke::new(2.0, colours.lane(edge.colour));
         if edge.from == edge.to {
             painter.line_segment([a, b], stroke);
         } else {
@@ -326,7 +323,7 @@ fn paint_row(
         }
     }
     let node = Pos2::new(lane_x(row.lane), mid);
-    painter.circle_filled(node, if merge { 4.0 } else { 6.0 }, colours.lane(row.lane));
+    painter.circle_filled(node, if merge { 4.0 } else { 6.0 }, colours.lane(row.colour));
     if head {
         painter.circle_stroke(node, 9.0, Stroke::new(1.5, strong(painter)));
     }

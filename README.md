@@ -22,14 +22,14 @@
 
 GitCraft reads the whole history in-process with [gitoxide](https://github.com/GitoxideLabs/gitoxide)
 and only lays out and reads the rows on screen, so the size of a repository hardly matters.
-Measured on [git.git](https://github.com/git/git) (85,875 commits, every branch and tag):
+Measured on [git.git](https://github.com/git/git) (86,267 commits, every branch and tag):
 
 | | GitCraft | for comparison |
 | --- | --- | --- |
-| Open the whole history and lay out the graph | 0.11 s | `git rev-list --all --date-order`: 0.09 s |
-| The same without a commit-graph file | 0.61 s | `git rev-list`: 0.59 s |
+| Open the whole history and lay out the graph | 0.08 s | `git rev-list --all --date-order`: 0.09 s |
+| The same without a commit-graph file | 0.58 s | `git rev-list`: 0.61 s |
 | Read and lay out one screen of commits | 0.1 ms | |
-| Lay out 200,000 commits on 12 branches | 28 ms | |
+| Lay out 200,000 commits on 12 branches | 12 ms | |
 
 Measured with `cargo bench` on an Intel Core i9-14900K. Every pull request runs the same
 benchmarks against the main branch, and one that makes GitCraft slower does not get merged.
@@ -44,7 +44,9 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
 - **Live**: what you change in an editor, a build or a terminal shows up by itself; files git
   ignores do not wake it.
 - **Graph**: every branch, remote branch and tag in one graph, children above parents, with
-  coloured lanes, branch and tag labels and the uncommitted changes on top. Arrow keys walk it.
+  branch and tag labels and the uncommitted changes on top. Lines that head for the same commit
+  share a lane and the lanes close up when a line ends, so the graph stays narrow; each line
+  keeps a colour of its own. Arrow keys walk it.
   Drag the borders between the names of the columns to make the branches and tags, the graph or
   the author wider or narrower, and double-click one to put it back; the widths stay for the next
   run.
