@@ -2,6 +2,7 @@
 
 use eframe::egui::{self, Color32, Theme};
 use gitcraft_core::date;
+use gitcraft_core::graph::COLOURS;
 use gitcraft_core::status::Change;
 
 use crate::settings;
@@ -9,8 +10,8 @@ use crate::settings;
 /// The colours the app adds to egui's own, for a dark or a light background.
 #[derive(Debug)]
 pub struct Colours {
-    /// One per graph lane, repeating.
-    lanes: [Color32; 10],
+    /// The colours the lines of the graph take turns in.
+    lanes: [Color32; COLOURS as usize],
     /// The background of an added line.
     pub added: Color32,
     /// The background of a removed line.
@@ -83,9 +84,9 @@ pub fn colours(theme: Theme) -> &'static Colours {
 }
 
 impl Colours {
-    /// The colour of a lane.
-    pub fn lane(&self, i: usize) -> Color32 {
-        self.lanes[i % self.lanes.len()]
+    /// The colour of a line in the graph.
+    pub fn lane(&self, i: u8) -> Color32 {
+        self.lanes[usize::from(i) % self.lanes.len()]
     }
 
     /// The letter and colour that mark a kind of change.
