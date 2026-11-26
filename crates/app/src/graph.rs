@@ -13,7 +13,7 @@ use gitcraft_core::graph::{Half, Row};
 use gitcraft_core::repo::{History, Label as Ref, RefKind};
 
 use crate::app::{Action, Confirm, Prompt, Selection, Workspace};
-use crate::theme;
+use crate::{settings, theme};
 
 /// The height of a row.
 pub const ROW: f32 = 28.0;
@@ -105,7 +105,7 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                     if author_width > 0.0 {
                         let author =
                             Rect::from_x_y_ranges(text.right() + 8.0..=text.right() + author_width, rect.y_range());
-                        put(ui, author, egui::RichText::new(&commit.author).weak());
+                        put_author(ui, author, (&commit.author, &commit.email));
                     }
                     let date = Rect::from_x_y_ranges(rect.right() - date_width..=rect.right() - 8.0, rect.y_range());
                     put(ui, date, egui::RichText::new(dates.when(commit.time)).weak());
@@ -293,6 +293,36 @@ pub fn put(ui: &Ui, rect: Rect, text: impl Into<egui::WidgetText>) {
     let galley = text.into().into_galley(ui, Some(egui::TextWrapMode::Truncate), rect.width(), egui::TextStyle::Body);
     let at = rect.left_center() - Vec2::Y * galley.size().y / 2.0;
     ui.painter().with_clip_rect(rect).galley(at, galley, ui.visuals().text_color());
+}
+
+/// Draws the author `who` (their name and email address) in `rect`, after their avatar unless the
+/// settings hide avatars.
+pub fn put_author(ui: &Ui, mut rect: Rect, who: (&str, &str)) {
+    if !settings::HIDE_AVATARS.on(ui.ctx()) {
+        let radius = (rect.height() / 2.0 - 2.0).min(9.0);
+        avatar(&ui.painter_at(rect), rect.left_center() + Vec2::X * radius, radius, who);
+        rect.min.x += 2.0 * radius + 6.0;
+    }
+    put(ui, rect, RichText::new(who.0).weak());
+}
+
+/// Draws the avatar of `who` (their name and email address) as a circle around `centre`: the
+/// first letters of their name, on a colour that goes with their address. It is made on the spot,
+/// never fetched.
+pub fn avatar(painter: &Painter, centre: Pos2, radius: f32, (name, email): (&str, &str)) {
+    let hash = email.bytes().fold(0, |hash: u8, b| hash.wrapping_mul(31).wrapping_add(b.to_ascii_lowercase()));
+    painter.circle_filled(centre, radius, theme::colours(painter.ctx().theme()).lane(hash));
+    let (font, text) = (FontId::proportional(radius), painter.ctx().global_style().visuals.panel_fill);
+    painter.text(centre, egui::Align2::CENTER_CENTER, initials(name, email), font, text);
+}
+
+/// The first letter of the first and of the last word of `name`, in capitals, or of `email` when
+/// the name has none.
+pub fn initials(name: &str, email: &str) -> String {
+    let first_letter = |word: &str| word.chars().find(|c| c.is_alphanumeric());
+    let mut words = name.split_whitespace().filter_map(first_letter);
+    let first = words.next().or_else(|| first_letter(email));
+    first.into_iter().chain(words.next_back()).flat_map(char::to_uppercase).collect()
 }
 
 /// A grey dashed line, for the uncommitted changes.

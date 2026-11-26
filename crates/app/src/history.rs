@@ -4,7 +4,7 @@
 use eframe::egui::{self, Key, Rect, RichText, Role, Sense, Ui, Vec2, WidgetInfo};
 
 use crate::app::{Action, Workspace};
-use crate::graph::{ROW, put};
+use crate::graph::{ROW, put, put_author};
 use crate::{diff, theme};
 
 /// Shows the history of the workspace.
@@ -55,7 +55,7 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                 let renamed = file.from.as_ref().map(|from| format!("  (from {from})")).unwrap_or_default();
                 let date = dates.width();
                 put(ui, column(80.0, 156.0 + date), format!("{}{renamed}", commit.summary()));
-                put(ui, column(width - 148.0 - date, date + 8.0), RichText::new(&commit.author).weak());
+                put_author(ui, column(width - 148.0 - date, date + 8.0), (&commit.author, &commit.email));
                 put(ui, column(width - date, 8.0), RichText::new(dates.when(commit.time)).weak());
                 response.widget_info(|| WidgetInfo::selected(Role::Button, true, open, commit.summary()));
                 if response.clicked() {

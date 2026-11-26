@@ -8,7 +8,7 @@ use gitcraft_core::status::Change;
 
 use crate::app::{Action, Confirm, Selection, Workspace, in_commit};
 use crate::commands::COMMIT;
-use crate::theme;
+use crate::{graph, settings, theme};
 
 /// Shows the panel.
 pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
@@ -224,8 +224,16 @@ fn commit(ui: &mut Ui, ws: &mut Workspace, id: ObjectId, actions: &mut Vec<Actio
             }
         });
     }
-    ui.label(format!("{} <{}>", commit.author, commit.email));
-    ui.weak(format!("authored {}", commit.time.format_or_unix(gitcraft_core::date::time::format::ISO8601)));
+    ui.horizontal(|ui| {
+        if !settings::HIDE_AVATARS.on(ui.ctx()) {
+            let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(32.0), egui::Sense::hover());
+            graph::avatar(ui.painter(), rect.center(), 16.0, (&commit.author, &commit.email));
+        }
+        ui.vertical(|ui| {
+            ui.label(format!("{} <{}>", commit.author, commit.email));
+            ui.weak(format!("authored {}", commit.time.format_or_unix(gitcraft_core::date::time::format::ISO8601)));
+        });
+    });
     ui.separator();
     let Some((_, files)) = ws.files.as_ref().filter(|(of, _)| *of == id) else { return };
     ui.strong(theme::count(files.len(), "changed file"));

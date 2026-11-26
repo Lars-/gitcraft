@@ -65,13 +65,16 @@ drive it the way a user does, and keeps every benchmark as fast as before.
       they last between runs
 - [x] Graph polish, part 2: compact lanes: lines that head for the same commit share a lane, and
       the lanes close up when a line ends, each line keeping its colour
+- [x] Graph polish, part 3: an avatar beside each author, in the graph, a commit, a file's history
+      and blame: their initials on a colour of their own, made on the spot and never fetched over
+      the network; the settings hide them
 
 ## Next
 
-1. **Graph polish**, the rest: author avatars (optional, never by default over the network).
-2. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
+1. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
    (AppImage, .deb, Flatpak), signed where the platform expects it.
 
 ## After 1.0
 
 - Submodules, worktrees and Git LFS.
+- Authors' pictures from a service such as Gravatar, only when turned on.

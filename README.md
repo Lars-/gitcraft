@@ -46,7 +46,8 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
 - **Graph**: every branch, remote branch and tag in one graph, children above parents, with
   branch and tag labels and the uncommitted changes on top. Lines that head for the same commit
   share a lane and the lanes close up when a line ends, so the graph stays narrow; each line
-  keeps a colour of its own. Arrow keys walk it.
+  keeps a colour of its own. Beside each author is an avatar with their initials, coloured by
+  their email address and made on the spot, so nothing goes over the network. Arrow keys walk it.
   Drag the borders between the names of the columns to make the branches and tags, the graph or
   the author wider or narrower, and double-click one to put it back; the widths stay for the next
   run.
@@ -113,8 +114,8 @@ GitCraft is young. This is what it does today; [ROADMAP.md](ROADMAP.md) has what
 - **Settings**: Settings, at the right of the tabs, or Ctrl+, (Cmd+, on a Mac). Zoom everything
   larger or smaller (Ctrl+Plus, Ctrl+Minus and Ctrl+0 do that anywhere), pick the dark or the
   light theme or the one your system uses, show dates as how long ago or as the date and the time,
-  and have Pull rebase rather than merge. They hold for every repository and stay for the next
-  run.
+  hide the avatars, and have Pull rebase rather than merge. They hold for every repository and stay
+  for the next run.
 - **Safe by default**: a hard reset, deleting a branch with commits no other branch or tag has, a
   force push, dropping a stash and removing a remote all ask first, saying what will be lost.
 
