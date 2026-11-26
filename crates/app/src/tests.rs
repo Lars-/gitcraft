@@ -1382,6 +1382,7 @@ fn follow_a_file_through_its_history_and_a_rename() {
     assert!(file.diff.header.iter().any(|line| line == "rename from file.txt"), "{:?}", file.diff.header);
     harness.get_by_label("Renamed from file.txt, nothing else changed");
     assert_eq!(ws.selection, Some(Selection::Commit(ws.snapshot.history.ids[1])));
+    assert_eq!(initials(&harness), ["TT"; 3], "beside both commits, and beside the one picked");
 
     // Before the rename, it was another file.
     harness.get_by_role_and_label(Role::Button, "First commit").click();
@@ -1440,6 +1441,7 @@ fn blame_tells_which_commit_last_changed_each_line() {
     }
     harness.get_by_label("Line 3: three (Count to three)");
     harness.get_by_label("Line 4: four (Not committed yet)");
+    assert_eq!(initials(&harness), ["TT", "O", "TT"], "an avatar beside each commit, none beside line 4");
 
     // A line shows the commit that changed it, and the other lines it changed.
     harness.get_by_label("Line 2: TWO (Shout two)").click();
@@ -1918,4 +1920,87 @@ fn drag_the_borders_between_the_names_of_the_columns_to_make_them_wider_or_narro
     assert_eq!(starts(&harness).1, None);
     assert!(harness.query_by_label("Author column width").is_none());
     assert_eq!(painted(&harness, "Author"), 0);
+}
+
+/// The avatars on screen: the letters on each coloured circle, with its colour.
+fn avatars(harness: &Harness<'_, App>) -> Vec<(String, egui::Color32)> {
+    let shapes: Vec<_> = harness.output().shapes.iter().map(|clipped| &clipped.shape).collect();
+    let on = |circle: &egui::epaint::CircleShape| {
+        shapes.iter().find_map(|shape| match shape {
+            egui::Shape::Text(text)
+                if (text.pos + text.galley.rect.center().to_vec2()).distance(circle.center) < 1.0 =>
+            {
+                Some((text.galley.job.text.clone(), circle.fill))
+            }
+            _ => None,
+        })
+    };
+    // The nodes of the graph are smaller.
+    let circles = shapes.iter().filter_map(|shape| match shape {
+        egui::Shape::Circle(circle) if circle.radius >= 7.0 && circle.fill != egui::Color32::TRANSPARENT => {
+            Some(circle)
+        }
+        _ => None,
+    });
+    circles.filter_map(on).collect()
+}
+
+/// The letters on the avatars on screen.
+fn initials(harness: &Harness<'_, App>) -> Vec<String> {
+    avatars(harness).into_iter().map(|(letters, _)| letters).collect()
+}
+
+#[test]
+fn an_avatar_has_the_first_letters_of_the_first_and_the_last_name() {
+    for (name, email, letters) in [
+        ("Tess Ter", "tess@example.com", "TT"),
+        ("ada king lovelace", "", "AL"),
+        ("J. R. R. Tolkien", "", "JT"),
+        ("Émile", "", "É"),
+        ("dependabot[bot]", "", "D"),
+        ("", "otto@example.com", "O"),
+        (" ", "", ""),
+    ] {
+        assert_eq!(crate::graph::initials(name, email), letters, "{name}");
+    }
+}
+
+#[test]
+fn each_author_has_an_avatar_of_their_own_unless_the_settings_hide_them() {
+    let (_dir, git) = repo();
+    let ada = ["-c", "user.name=Ada King Lovelace", "-c", "user.email=ada@example.com"];
+    git.run(&[&ada[..], &["commit", "-q", "--allow-empty", "-m", "By Ada"]].concat()).unwrap();
+    commit(&git, "Second commit");
+    let mut harness = app(Some(git.dir()));
+    harness.set_size(egui::vec2(1800.0, 720.0));
+    harness.get_by_role_and_label(Role::Button, "By Ada").click();
+    settle(&mut harness);
+
+    // In the graph, with room for the author, and beside the commit picked, each address with a
+    // colour of its own.
+    let shown = avatars(&harness);
+    let colours = |letters: &str| {
+        let mut colours: Vec<_> = shown.iter().filter(|(l, _)| l == letters).map(|(_, colour)| *colour).collect();
+        colours.dedup();
+        colours
+    };
+    let (tess, ada) = (colours("TT"), colours("AL"));
+    assert!(shown.len() == 4 && tess.len() == 1 && ada.len() == 1 && tess != ada, "{shown:?}");
+
+    // The settings hide them, and the names take their place.
+    let name = |harness: &Harness<'_, App>| painted_at(harness, "Tess Ter")[0].x;
+    let beside = name(&harness);
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Comma);
+    settle(&mut harness);
+    harness.get_by_label("None").click();
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    assert_eq!(avatars(&harness), []);
+    assert!(same(name(&harness), beside - 24.0), "{} and {beside}", name(&harness));
+    harness.get_by_label("Settings").click();
+    settle(&mut harness);
+    harness.get_by_label("Initials").click();
+    harness.key_press(Key::Escape);
+    settle(&mut harness);
+    assert_eq!(avatars(&harness), shown);
 }

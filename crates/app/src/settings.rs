@@ -17,6 +17,8 @@ pub struct Switch(&'static str);
 pub const SIDE_BY_SIDE: Switch = Switch("side by side");
 /// Dates read as a date and a time, rather than as how long ago.
 pub const FULL_DATES: Switch = Switch("full dates");
+/// The graph, the commit, a file's history and blame show each author without an avatar.
+pub const HIDE_AVATARS: Switch = Switch("hide avatars");
 /// Pull rebases onto the upstream, rather than merging it.
 pub const REBASE: Switch = Switch("pull with rebase");
 
@@ -57,6 +59,7 @@ pub fn show(ctx: &egui::Context) -> bool {
             ctx.set_theme(theme);
         }
         FULL_DATES.choice(ui, "Dates", ["How long ago", "Date and time"]);
+        HIDE_AVATARS.choice(ui, "Avatars", ["Initials", "None"]);
         REBASE.choice(ui, "Pull", ["Merge", "Rebase"]);
         close = ui.button("Close").clicked();
     });

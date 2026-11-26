@@ -4,12 +4,12 @@
 use eframe::egui::{self, Align2, Color32, FontId, Key, Rect, RichText, Role, Sense, Stroke, Ui, Vec2, WidgetInfo};
 
 use crate::app::{Action, Selection, Workspace};
-use crate::graph::put;
+use crate::graph::{put, put_author};
 use crate::theme;
 
 const LINE: f32 = 18.0;
 /// The width of the commit beside the lines, without its date.
-const GUTTER: f32 = 300.0;
+const GUTTER: f32 = 320.0;
 
 /// Shows the blame of the workspace.
 pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
@@ -38,11 +38,11 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
             let (id, text) = &blame.lines[row];
             let text = text.trim_end_matches('\r');
             let (summary, author, when) = if id.is_null() {
-                ("Not committed yet".to_owned(), String::new(), String::new())
+                ("Not committed yet".to_owned(), None, String::new())
             } else {
                 match commits.get(repo, *id) {
-                    Ok(commit) => (commit.summary().to_owned(), commit.author.clone(), dates.when(commit.time)),
-                    Err(error) => (error.to_string(), String::new(), String::new()),
+                    Ok(c) => (c.summary().to_owned(), Some((c.author.clone(), c.email.clone())), dates.when(c.time)),
+                    Err(error) => (error.to_string(), None, String::new()),
                 }
             };
             let line = if id.is_null() { Selection::Wip } else { Selection::Commit(*id) };
@@ -72,7 +72,9 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace, actions: &mut Vec<Action>) {
                     put(ui, column(8.0, width - 64.0), RichText::new(&id.to_string()[..7]).monospace().weak());
                 }
                 put(ui, column(72.0, date + 108.0), summary.as_str());
-                put(ui, column(width - date - 100.0, date + 8.0), RichText::new(author).weak());
+                if let Some((name, email)) = &author {
+                    put_author(ui, column(width - date - 100.0, date + 8.0), (name, email));
+                }
                 put(ui, column(width - date, 8.0), RichText::new(when).weak());
             }
             let at = |x: f32| gutter.right_center() + Vec2::X * x;
