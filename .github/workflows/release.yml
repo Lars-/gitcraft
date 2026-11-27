@@ -3,6 +3,9 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # A change to how the downloads are made builds them all, to try them, without a release.
+  pull_request:
+    paths: [packaging/**, .github/workflows/release.yml]
 
 permissions:
   contents: write
@@ -30,18 +33,35 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          name="gitcraft-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          id=$(cargo pkgid -p gitcraft)
+          echo "version=${id##*@}" >> "$GITHUB_ENV"
+          name="gitcraft-v${id##*@}-${{ matrix.target }}"
           binary=gitcraft
           if [[ "${{ matrix.target }}" == *windows* ]]; then binary=gitcraft.exe; fi
           mkdir "$name"
           cp "target/${{ matrix.target }}/release/$binary" README.md LICENSE-MIT LICENSE-APACHE "$name/"
           if [[ "${{ matrix.target }}" == *windows* ]]; then 7z a -bso0 "$name.zip" "$name"; else tar czf "$name.tar.gz" "$name"; fi
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: packaging/linux.sh target/${{ matrix.target }}/release/gitcraft "$(uname -m)" "$version"
+      # The package has to install, and GitCraft from both has to still run after ten seconds on a
+      # virtual screen: when it cannot open its window, it stops at once.
+      - name: Try the Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ./gitcraft-*.deb desktop-file-utils xvfb
+          desktop-file-validate /usr/share/applications/gitcraft.desktop
+          xvfb-run -a timeout 10 gitcraft || test $? = 124
+          xvfb-run -a timeout 10 ./gitcraft-*.AppImage --appimage-extract-and-run || test $? = 124
       - uses: softprops/action-gh-release@v3
+        if: github.event_name == 'push'
         with:
           files: gitcraft-*.*
 
   # Once, after every build: with the notes generated in each matrix job they were appended six times.
   notes:
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     env:

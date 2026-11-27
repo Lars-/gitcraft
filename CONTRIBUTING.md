@@ -101,6 +101,11 @@ the accessibility tree with [egui_kittest](https://crates.io/crates/egui_kittest
 GitCraft usable with a screen reader: give every new control an accessible name. The tests in
 `crates/app/tests` run `git` against the built `gitcraft`, to see it ask through the window.
 
+**`packaging`** turns a release build into what people install: `linux.sh` makes the Debian
+package and the AppImage. The release workflow builds every download, installs the Linux
+packages and starts GitCraft from them, for each version tag and for each pull request that
+changes how they are made.
+
 ## Reporting bugs and asking for features
 
 Open an issue with the templates. For a bug, say what you did, what happened and what you
