@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=GitCraft
+GenericName=Git Client
+Comment=Fast graphical git client
+Exec=gitcraft %f
+Icon=gitcraft
+Terminal=false
+Categories=Development;RevisionControl;
+Keywords=git;commit;branch;merge;rebase;
+StartupWMClass=gitcraft

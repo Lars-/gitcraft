@@ -127,8 +127,9 @@ credentials and commit signing work exactly as they do on the command line.
 GitCraft needs [git](https://git-scm.com/downloads) 2.32 or newer on your `PATH`.
 
 Builds for Windows, macOS and Linux (x86-64 and ARM) come with each
-[release](https://github.com/Lars-/gitcraft/releases). To build it yourself, install
-[Rust](https://rustup.rs) and run:
+[release](https://github.com/Lars-/gitcraft/releases). On Linux there is also a Debian package,
+which puts GitCraft in the menu (`sudo apt install ./gitcraft-v…-amd64.deb`), and an AppImage,
+which runs without installing. To build it yourself, install [Rust](https://rustup.rs) and run:
 
 ```sh
 cargo install --git https://github.com/Lars-/gitcraft gitcraft

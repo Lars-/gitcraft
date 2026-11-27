@@ -68,11 +68,12 @@ drive it the way a user does, and keeps every benchmark as fast as before.
 - [x] Graph polish, part 3: an avatar beside each author, in the graph, a commit, a file's history
       and blame: their initials on a colour of their own, made on the spot and never fetched over
       the network; the settings hide them
+- [x] Packaging, part 1: for Linux a Debian package and an AppImage, with the icon and a menu entry
 
 ## Next
 
-1. **Packaging**: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and Linux
-   (AppImage, .deb, Flatpak), signed where the platform expects it.
+1. **Packaging**, part 2: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and
+   Linux (Flatpak), signed where the platform expects it.
 
 ## After 1.0
 
