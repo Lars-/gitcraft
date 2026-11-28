@@ -103,9 +103,9 @@ GitCraft usable with a screen reader: give every new control an accessible name.
 
 **`packaging`** turns a release build into what people install: `linux.sh` makes the Debian
 package and the AppImage, `windows.ps1` the installer for Windows (from `gitcraft.wxs`, with
-WiX 3) and `macos.sh` GitCraft.app in a disk image. The release workflow builds every download,
-installs each package and starts GitCraft from it, for each version tag and for each pull request
-that changes how they are made.
+WiX 3) and `macos.sh` GitCraft.app in a disk image. The release workflow builds every download
+and tries each package on its own system, installing it and starting GitCraft from it, for each
+version tag and for each pull request that changes how they are made.
 
 ## Reporting bugs and asking for features
 
