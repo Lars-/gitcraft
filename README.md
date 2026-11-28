@@ -126,10 +126,28 @@ credentials and commit signing work exactly as they do on the command line.
 
 GitCraft needs [git](https://git-scm.com/downloads) 2.32 or newer on your `PATH`.
 
-Builds for Windows, macOS and Linux (x86-64 and ARM) come with each
-[release](https://github.com/Lars-/gitcraft/releases). On Linux there is also a Debian package,
-which puts GitCraft in the menu (`sudo apt install ./gitcraft-v…-amd64.deb`), and an AppImage,
-which runs without installing. To build it yourself, install [Rust](https://rustup.rs) and run:
+Each [release](https://github.com/Lars-/gitcraft/releases) comes for Windows, macOS and Linux,
+on x86-64 and on ARM:
+
+- **Windows**: an installer (`gitcraft-v…-x64.msi`, or `-arm64.msi`) that puts GitCraft in the
+  Start menu.
+- **macOS**: GitCraft.app in a disk image (`gitcraft-v…-arm64.dmg` for Apple silicon,
+  `-x86_64.dmg` for Intel). Open it and drag GitCraft into Applications.
+- **Linux**: a Debian package that puts GitCraft in the menu
+  (`sudo apt install ./gitcraft-v…-amd64.deb`), and an AppImage that runs without installing.
+
+Every release also has the program on its own in an archive, for each system.
+
+The Windows and macOS downloads are not signed with a certificate yet, so the first time you open
+them the system asks whether you trust them:
+
+- **Windows**: when SmartScreen says "Windows protected your PC", click **More info**, then
+  **Run anyway**.
+- **macOS**: when macOS says it could not verify GitCraft, click **Done**, open
+  **System Settings › Privacy & Security**, scroll down to the line about GitCraft and click
+  **Open Anyway**. From then on it opens like any other app.
+
+To build it yourself, install [Rust](https://rustup.rs) and run:
 
 ```sh
 cargo install --git https://github.com/Lars-/gitcraft gitcraft

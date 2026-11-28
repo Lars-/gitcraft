@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Windows installer, made by windows.ps1: GitCraft in Program Files and in the Start menu. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <!-- The upgrade code never changes, so installing a new version replaces the old one. -->
+  <Product Id="*" Name="GitCraft" Version="$(var.Version)" Manufacturer="Lars Jansen" Language="1033"
+           UpgradeCode="EF4118F4-B93B-4A3F-9AFE-6A1002722630">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
+             Description="GitCraft, a fast graphical git client" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of GitCraft is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="gitcraft.ico" SourceFile="assets\icon\gitcraft.ico" />
+    <Property Id="ARPPRODUCTICON" Value="gitcraft.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Lars-/gitcraft" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="GitCraft">
+          <Component Id="GitCraft" Guid="*">
+            <File Source="$(var.Binary)" KeyPath="yes">
+              <Shortcut Id="StartMenu" Directory="ProgramMenuFolder" Name="GitCraft"
+                        Description="A fast graphical git client" WorkingDirectory="INSTALLFOLDER"
+                        Icon="gitcraft.ico" />
+            </File>
+            <File Source="LICENSE-MIT" />
+            <File Source="LICENSE-APACHE" />
+          </Component>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+    </Directory>
+    <Feature Id="GitCraft">
+      <ComponentRef Id="GitCraft" />
+    </Feature>
+  </Product>
+</Wix>
