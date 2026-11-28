@@ -29,7 +29,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      # The Windows builds carry Microsoft's C runtime, so they start without the Visual C++
+      # redistributable, which not every Windows has.
       - run: cargo build --release --locked -p gitcraft --target ${{ matrix.target }}
+        env:
+          RUSTFLAGS: ${{ contains(matrix.target, 'windows') && '-C target-feature=+crt-static' || '' }}
       - name: Package
         shell: bash
         run: |
@@ -71,6 +75,7 @@ jobs:
           $menu = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\GitCraft.lnk"
           $setup = Start-Process msiexec -ArgumentList '/i', "`"$msi`"", '/qn' -Wait -PassThru
           if ($setup.ExitCode -or -not (Test-Path $exe) -or -not (Test-Path $menu)) { throw "Not installed: $($setup.ExitCode)" }
+          if ([IO.File]::ReadAllText($exe).Contains('VCRUNTIME140.dll')) { throw 'GitCraft needs the Visual C++ redistributable' }
           # The runners have no OpenGL 2, so GitCraft gets Mesa's beside it, which draws on the processor.
           $ProgressPreference = 'SilentlyContinue'
           $arch, $sum = if ('${{ matrix.target }}' -like 'aarch64*') { 'arm64', 'f238bfb90e2dfc5102cd4ff007ef00d9e8a8bb9dbc3e67556dce1291e752124e' } else { 'x64', '1910245962e3d854589ed11a9a488e84841a01559142fba8b81395271981700b' }
