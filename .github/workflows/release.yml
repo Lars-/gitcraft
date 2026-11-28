@@ -71,6 +71,8 @@ jobs:
         shell: pwsh
         run: |
           $msi = (Get-Item gitcraft-*.msi).FullName
+          $extra = Get-ChildItem gitcraft-* -File -Exclude *.zip, *.msi
+          if ($extra) { throw "Not a download: $extra" }
           $exe = "$env:ProgramFiles\GitCraft\gitcraft.exe"
           $menu = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\GitCraft.lnk"
           $setup = Start-Process msiexec -ArgumentList '/i', "`"$msi`"", '/qn' -Wait -PassThru
