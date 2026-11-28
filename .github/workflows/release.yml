@@ -5,7 +5,7 @@ on:
     tags: ["v*"]
   # A change to how the downloads are made builds them all, to try them, without a release.
   pull_request:
-    paths: [packaging/**, .github/workflows/release.yml]
+    paths: [packaging/**, assets/icon/**, .github/workflows/release.yml]
 
 permissions:
   contents: write
@@ -54,6 +54,58 @@ jobs:
           desktop-file-validate /usr/share/applications/gitcraft.desktop
           xvfb-run -a timeout 10 gitcraft || test $? = 124
           xvfb-run -a timeout 10 ./gitcraft-*.AppImage --appimage-extract-and-run || test $? = 124
+      - name: Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $target = '${{ matrix.target }}'
+          packaging/windows.ps1 "target/$target/release/gitcraft.exe" $target.Split('-')[0] $env:version
+      # The installer has to put GitCraft in Program Files and the Start menu, GitCraft has to still
+      # run after ten seconds, and uninstalling has to take both away again.
+      - name: Try the Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msi = (Get-Item gitcraft-*.msi).FullName
+          $exe = "$env:ProgramFiles\GitCraft\gitcraft.exe"
+          $menu = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\GitCraft.lnk"
+          $setup = Start-Process msiexec -ArgumentList '/i', "`"$msi`"", '/qn' -Wait -PassThru
+          if ($setup.ExitCode -or -not (Test-Path $exe) -or -not (Test-Path $menu)) { throw "Not installed: $($setup.ExitCode)" }
+          # The runners have no OpenGL 2, so GitCraft gets Mesa's beside it, which draws on the processor.
+          $ProgressPreference = 'SilentlyContinue'
+          $arch, $sum = if ('${{ matrix.target }}' -like 'aarch64*') { 'arm64', 'f238bfb90e2dfc5102cd4ff007ef00d9e8a8bb9dbc3e67556dce1291e752124e' } else { 'x64', '1910245962e3d854589ed11a9a488e84841a01559142fba8b81395271981700b' }
+          Invoke-WebRequest "https://github.com/mmozeiko/build-mesa/releases/download/26.2.6/mesa-llvmpipe-$arch-26.2.6.7z" -OutFile mesa.7z
+          if ((Get-FileHash mesa.7z).Hash -ne $sum) { throw 'The download of Mesa is not the one expected' }
+          7z e -bso0 mesa.7z opengl32.dll "-o$env:ProgramFiles\GitCraft"
+          $app = Start-Process $exe -PassThru -RedirectStandardError error.txt
+          Start-Sleep 10
+          if ($app.HasExited) { throw "GitCraft stopped with $($app.ExitCode): $(Get-Content error.txt)" }
+          Stop-Process $app
+          Start-Sleep 1
+          Remove-Item "$env:ProgramFiles\GitCraft\opengl32.dll"
+          $setup = Start-Process msiexec -ArgumentList '/x', "`"$msi`"", '/qn' -Wait -PassThru
+          if ($setup.ExitCode -or (Test-Path $exe) -or (Test-Path $menu)) { throw "Not uninstalled: $($setup.ExitCode)" }
+      - name: macOS disk image
+        if: runner.os == 'macOS'
+        run: |
+          target=${{ matrix.target }}
+          packaging/macos.sh "target/$target/release/gitcraft" "${target%%-*}" "$version"
+      # The disk image has to open, with the app sealed as a whole, and the app has to still run
+      # after ten seconds, started the way Finder does (only on the processor of this Mac).
+      - name: Try the macOS disk image
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil attach -quiet gitcraft-*.dmg
+          app=/Volumes/GitCraft/GitCraft.app
+          codesign --verify --deep --strict "$app"
+          plutil -lint "$app/Contents/Info.plist"
+          test -L /Volumes/GitCraft/Applications
+          if lipo "$app/Contents/MacOS/gitcraft" -verify_arch "$(uname -m)"; then
+            open "$app"
+            sleep 10
+            pkill -x gitcraft
+          fi
+          hdiutil detach -quiet /Volumes/GitCraft
       - uses: softprops/action-gh-release@v3
         if: github.event_name == 'push'
         with:

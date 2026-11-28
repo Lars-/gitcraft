@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Windows installer, made by windows.ps1: GitCraft in Program Files and in the Start menu. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <!-- The upgrade code never changes, so installing a new version replaces the old one. -->
+  <Product Id="*" Name="GitCraft" Version="$(var.Version)" Manufacturer="Lars Jansen" Language="1033"
+           UpgradeCode="EF4118F4-B93B-4A3F-9AFE-6A1002722630">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
+             Description="GitCraft, a fast graphical git client" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of GitCraft is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="gitcraft.ico" SourceFile="assets\icon\gitcraft.ico" />
+    <Property Id="ARPPRODUCTICON" Value="gitcraft.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Lars-/gitcraft" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="GitCraft">
+          <!-- One file each: the binary has no version, so WiX makes a GUID only for one file. -->
+          <Component Id="Binary" Guid="*">
+            <File Source="$(var.Binary)" KeyPath="yes" />
+          </Component>
+          <Component Id="MIT" Guid="*">
+            <File Source="LICENSE-MIT" KeyPath="yes" />
+          </Component>
+          <Component Id="Apache" Guid="*">
+            <File Source="LICENSE-APACHE" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <!-- Windows Installer counts the Start menu as the user's, so what tells it the shortcut
+             is there is a value in the user's registry. -->
+        <Component Id="StartMenu" Guid="A3E4FB3D-4363-4BAE-94DF-2016754C85AF">
+          <Shortcut Id="StartMenu" Name="GitCraft" Description="A fast graphical git client"
+                    Target="[INSTALLFOLDER]gitcraft.exe" WorkingDirectory="INSTALLFOLDER" Icon="gitcraft.ico" />
+          <RegistryValue Root="HKCU" Key="Software\GitCraft" Name="StartMenu" Type="integer" Value="1"
+                         KeyPath="yes" />
+        </Component>
+      </Directory>
+    </Directory>
+    <Feature Id="GitCraft">
+      <ComponentRef Id="Binary" />
+      <ComponentRef Id="MIT" />
+      <ComponentRef Id="Apache" />
+      <ComponentRef Id="StartMenu" />
+    </Feature>
+  </Product>
+</Wix>

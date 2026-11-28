@@ -69,11 +69,13 @@ drive it the way a user does, and keeps every benchmark as fast as before.
       and blame: their initials on a colour of their own, made on the spot and never fetched over
       the network; the settings hide them
 - [x] Packaging, part 1: for Linux a Debian package and an AppImage, with the icon and a menu entry
+- [x] Packaging, part 2: an installer for Windows (MSI) that puts GitCraft in the Start menu, and
+      GitCraft.app in a disk image for macOS, both with the icon; not yet signed with a
+      certificate, so the README says how to open them
 
 ## Next
 
-1. **Packaging**, part 2: installers with the icon for Windows (MSI), macOS (.app in a .dmg) and
-   Linux (Flatpak), signed where the platform expects it.
+1. **Packaging**, part 3: a Flatpak for Linux, with the icon and a menu entry.
 
 ## After 1.0
 
