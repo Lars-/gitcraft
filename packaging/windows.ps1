@@ -18,7 +18,7 @@ try {
   }
   Expand-Archive "$tmp\wix.zip" "$tmp\wix"
   & "$tmp\wix\candle.exe" -nologo -arch $msi "-dVersion=$Version" "-dBinary=$binary" -out "$tmp\gitcraft.wixobj" packaging\gitcraft.wxs
-  & "$tmp\wix\light.exe" -nologo -out "$out\gitcraft-v$Version-$msi.msi" "$tmp\gitcraft.wixobj"
+  & "$tmp\wix\light.exe" -nologo -spdb -out "$out\gitcraft-v$Version-$msi.msi" "$tmp\gitcraft.wixobj"
 } finally {
   Pop-Location
   Remove-Item -Recurse -Force $tmp
