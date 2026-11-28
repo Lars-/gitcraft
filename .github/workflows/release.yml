@@ -71,9 +71,9 @@ jobs:
           $menu = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\GitCraft.lnk"
           $setup = Start-Process msiexec -ArgumentList '/i', "`"$msi`"", '/qn' -Wait -PassThru
           if ($setup.ExitCode -or -not (Test-Path $exe) -or -not (Test-Path $menu)) { throw "Not installed: $($setup.ExitCode)" }
-          $app = Start-Process $exe -PassThru
+          $app = Start-Process $exe -PassThru -RedirectStandardError error.txt
           Start-Sleep 10
-          if ($app.HasExited) { throw "GitCraft stopped with $($app.ExitCode)" }
+          if ($app.HasExited) { throw "GitCraft stopped with $($app.ExitCode): $(Get-Content error.txt)" }
           Stop-Process $app
           $setup = Start-Process msiexec -ArgumentList '/x', "`"$msi`"", '/qn' -Wait -PassThru
           if ($setup.ExitCode -or (Test-Path $exe) -or (Test-Path $menu)) { throw "Not uninstalled: $($setup.ExitCode)" }
