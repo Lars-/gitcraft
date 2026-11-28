@@ -14,21 +14,28 @@
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="GitCraft">
-          <Component Id="GitCraft" Guid="*">
+          <!-- One file each: the binary has no version, so WiX makes a GUID only for one file. -->
+          <Component Id="Binary" Guid="*">
             <File Source="$(var.Binary)" KeyPath="yes">
               <Shortcut Id="StartMenu" Directory="ProgramMenuFolder" Name="GitCraft"
                         Description="A fast graphical git client" WorkingDirectory="INSTALLFOLDER"
                         Icon="gitcraft.ico" />
             </File>
-            <File Source="LICENSE-MIT" />
-            <File Source="LICENSE-APACHE" />
+          </Component>
+          <Component Id="MIT" Guid="*">
+            <File Source="LICENSE-MIT" KeyPath="yes" />
+          </Component>
+          <Component Id="Apache" Guid="*">
+            <File Source="LICENSE-APACHE" KeyPath="yes" />
           </Component>
         </Directory>
       </Directory>
       <Directory Id="ProgramMenuFolder" />
     </Directory>
     <Feature Id="GitCraft">
-      <ComponentRef Id="GitCraft" />
+      <ComponentRef Id="Binary" />
+      <ComponentRef Id="MIT" />
+      <ComponentRef Id="Apache" />
     </Feature>
   </Product>
 </Wix>
